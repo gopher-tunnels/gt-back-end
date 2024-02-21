@@ -1,4 +1,39 @@
-## To run this respository locally:
-1. Git clone this repository locally
-2. In your terminal, run <code>npm install</code>
-3. To run the server, run <code>npm run dev</code>
+# Gopher Tunnels Back-End
+
+Welcome to the official Gopher Tunnels back-end repository!
+
+## Environment setup
+
+### 1. Clone the repository
+
+```bash
+git clone
+```
+
+### 2. Install dependencies
+
+Yarn:
+
+```bash
+yarn
+```
+
+npm:
+
+```bash
+npm install
+```
+
+### 3. Run the dev environment
+
+Yarn:
+
+```bash
+yarn dev
+```
+
+npm:
+
+```bash
+npm run dev
+```
