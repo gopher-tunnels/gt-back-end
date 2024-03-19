@@ -8,7 +8,7 @@ const app: Express = express();
 const port = process.env.PORT;
 
 app.get('/', (req: Request, res: Response) => {
-  res.send('Gopher Tunnels back-end');
+  res.send('<h1> Hello World </h1>');
 });
 
 app.listen(port, () => {
