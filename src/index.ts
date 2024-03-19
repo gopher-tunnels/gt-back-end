@@ -1,5 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
+import { ManagedTransaction, TransactionPromise } from 'neo4j-driver-core';
 
 dotenv.config();
 
