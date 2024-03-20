@@ -629,7 +629,7 @@ neo4j-driver-bolt-connection@5.18.0:
     neo4j-driver-core "5.18.0"
     string_decoder "^1.3.0"
 
-neo4j-driver-core@5.18.0:
+neo4j-driver-core@^5.18.0, neo4j-driver-core@5.18.0:
   version "5.18.0"
   resolved "https://registry.npmjs.org/neo4j-driver-core/-/neo4j-driver-core-5.18.0.tgz"
   integrity sha512-naq5zT5tYazh81CO28L5YrcL/Wy4NoppqawkE5zyfFFVEs3bhmGn7G170FL0Fs8h7Dab1aZ5hlOBwlXXVWSDng==

@@ -1,4 +1,5 @@
 "use strict";
+
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -33,7 +34,30 @@ const neo4j = require('neo4j-driver');
     return
   }
 
-  // driver.
+  let session = driver.session({ database: 'neo4j' });
+
+  let { records, summary } = await session.executeRead(async tx => {
+    return await tx.run(`
+      MATCH (p:MAN)
+      RETURN p.name, p.age
+      `
+    )
+  })
+
+//   console.log(records);
+
+  for (let record in records) {
+    console.log(record.values())
+//     let cat1 = record.get("p.name");
+//     let cat2 = record.indexOf("p.age");
+
+//     let name = record._fieldLookup[cat1];
+//     let age = record._fieldLookup[cat2]
+
+//     console.log(`Name: ${record._fields[name]}, Age: ${record._fields[age]}`);
+  }
+
+  console.log(records)
 
   await driver.close()
 })();
