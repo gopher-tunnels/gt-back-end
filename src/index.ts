@@ -18,12 +18,9 @@ const neo4j = require('neo4j-driver');
   const USER = process.env.NEO4J_USERNAME
   const PASSWORD = process.env.NEO4J_PASSWORD
 
-  console.log(URI)
-  console.log(USER)
-  console.log(PASSWORD)
-
   let driver
 
+  // debugging 
   try {
     driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))
     const serverInfo = await driver.getServerInfo()
@@ -45,19 +42,12 @@ const neo4j = require('neo4j-driver');
     )
   })
 
-//   console.log(records);
+  for (let record of records) {
+    let name = record.get("p.name");
+    let age = record.get("p.age");
 
-  for (let record in records) {
-//     let cat1 = record.get("p.name");
-//     let cat2 = record.indexOf("p.age");
-
-//     let name = record._fieldLookup[cat1];
-//     let age = record._fieldLookup[cat2]
-
-//     console.log(`Name: ${record._fields[name]}, Age: ${record._fields[age]}`);
+    console.log(`Name: ${name}, Age: ${age}`);
   }
-
-  console.log(records)
 
   await driver.close()
 })();

@@ -47,7 +47,8 @@ const neo4j = require('neo4j-driver');
 //   console.log(records);
 
   for (let record in records) {
-    console.log(record.values())
+    // console.log(record.values())
+    console.log(record)
 //     let cat1 = record.get("p.name");
 //     let cat2 = record.indexOf("p.age");
 
