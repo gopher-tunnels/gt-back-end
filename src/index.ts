@@ -1,12 +1,13 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
-import { ManagedTransaction, TransactionPromise } from 'neo4j-driver-core';
+import { Driver, ManagedTransaction, TransactionPromise } from 'neo4j-driver-core';
 
 dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT;
 const neo4j = require('neo4j-driver');
+let driver
 
 (async () => {
   require('dotenv').config({
@@ -18,9 +19,7 @@ const neo4j = require('neo4j-driver');
   const USER = process.env.NEO4J_USERNAME
   const PASSWORD = process.env.NEO4J_PASSWORD
 
-  let driver
-
-  // debugging 
+  // debugging and connecting
   try {
     driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))
     const serverInfo = await driver.getServerInfo()
@@ -29,31 +28,38 @@ const neo4j = require('neo4j-driver');
   } catch(err: any) {
     console.log(`Connection error\n${err}\nCause: ${err.cause}`)
     await driver.close()
-    return
   }
+
+  // below is example query
 
   let session = driver.session({ database: 'neo4j' });
 
-  let { records, summary } = await session.executeRead(async (tx: any) => {
+  let { records, summary } = await session.executeRead(
+    async (tx: ManagedTransaction) => {
     return await tx.run(`
-      MATCH (p:MAN)
-      RETURN p.name, p.age
+      MATCH (p)
+      RETURN p
       `
     )
   })
 
-  for (let record of records) {
-    let name = record.get("p.name");
-    let age = record.get("p.age");
-
-    console.log(`Name: ${name}, Age: ${age}`);
-  }
+  console.log(records, summary)
 
   await driver.close()
 })();
 
 app.get('/', (req: Request, res: Response) => {
   res.send('Gopher Tunnels back-end');
+});
+
+process.on('exit', async () => {
+  // try {
+  //   await driver.close()
+  // } catch (err: any) {
+  //   console.log(`Error ${err}: ${err.cause}`)
+  // }
+  console.log("Program Exited")
+  return
 });
 
 app.listen(port, () => {

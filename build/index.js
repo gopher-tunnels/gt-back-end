@@ -44,7 +44,7 @@ const neo4j = require('neo4j-driver');
     )
   })
 
-//   console.log(records);
+//   console.log(records);                                  
 
   for (let record in records) {
     // console.log(record.values())
