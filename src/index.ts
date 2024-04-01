@@ -7,7 +7,7 @@ dotenv.config();
 const app: Express = express();
 const port = process.env.PORT;
 const neo4j = require('neo4j-driver');
-let driver
+let driver: any | ManagedTransaction;
 
 (async () => {
   require('dotenv').config({
@@ -18,6 +18,7 @@ let driver
   const URI = process.env.NEO4J_URI
   const USER = process.env.NEO4J_USERNAME
   const PASSWORD = process.env.NEO4J_PASSWORD
+  let info: { start: string, destinations: string[]}[] = []
 
   // debugging and connecting
   try {
@@ -36,28 +37,107 @@ let driver
 
   let { records, summary } = await session.executeRead(
     async (tx: ManagedTransaction) => {
-    return await tx.run(`
-      MATCH (p)
-      RETURN p
+    return await tx.run(
+      `
+        MATCH (t)
+        WHERE ((t:junction) OR (t:entrance))
+        RETURN t.name AS start, 
+          COLLECT {
+            MATCH (t)-[:CONNECTED_TO]->(v)
+            WHERE ((v:junction) OR (v:entrance))
+            RETURN v.name
+          } AS destinations
       `
     )
   })
 
-  console.log(records, summary)
+  // console.log(records)
 
-  await driver.close()
+  for (let node of records) {
+    info.push(
+      {
+        start: node.get("start"),
+        destinations: node.get("destinations")
+      }
+    )
+  }
+
+  // for (let node of records) {
+  //   info.push(
+  //     {
+  //       start: [
+  //               node.get("p.name"),
+  //               node.get("p.latitude"),
+  //               node.get("p.longitude")
+  //             ],
+  //       destination: [
+  //               node.get("q.name"),
+  //               node.get("q.latitude"),
+  //               node.get("q.longitude")
+  //             ]
+  //     }
+  //   )
+  // }
+
+  console.log(info)
+
 })();
 
 app.get('/', (req: Request, res: Response) => {
   res.send('Gopher Tunnels back-end');
 });
 
+// return path; does not work -> returns same route
+// structure a list that returns tuples of latitude and longitude
+app.get('/routes', (req: Request, res: Response) => {
+  let info: {start: [string, number, number], destination: [string, number, number]}[] = [];
+
+  (async () => {
+  // below is example query
+
+  let session = driver.session({ database: 'neo4j' });
+
+  let { records, summary } = await session.executeRead(
+    async (tx: ManagedTransaction) => {
+    return await tx.run(
+      `
+        MATCH (p), (q)
+        WHERE ((p:junction) OR (p:entrance)) 
+              AND ((q:junction) OR (q:entrance)) 
+              AND (p)-[:IS_CONNECTED]->(q)
+        RETURN p.name, p.latitude, p.longitude
+      `
+    )
+  })
+
+  for (let node of records) {
+    info.push(
+      {
+        start: [
+                node.get("p.name"),
+                node.get("p.latitude"),
+                node.get("p.longitude")
+              ],
+        destination: [
+                node.get("q.name"),
+                node.get("q.latitude"),
+                node.get("q.longitude")
+              ]
+      }
+    )
+  }
+  })();
+
+  res.send("routes");
+
+});
+
 process.on('exit', async () => {
-  // try {
-  //   await driver.close()
-  // } catch (err: any) {
-  //   console.log(`Error ${err}: ${err.cause}`)
-  // }
+  try {
+    await driver.close()
+  } catch (err: any) {
+    console.log(`Error ${err}: ${err.cause}`)
+  }
   console.log("Program Exited")
   return
 });
