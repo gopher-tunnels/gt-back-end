@@ -6,19 +6,16 @@ dotenv.config();
 
 const app: Express = express();
 const port = process.env.PORT;
+
 const neo4j = require('neo4j-driver');
-let driver: any | ManagedTransaction;
+let driver: ManagedTransaction | any;
 
 (async () => {
-  require('dotenv').config({
-    path: 'Neo4j-b04d4356-Created-2024-03-12.txt',
-    debug: true  // to raise file/parsing errors
-  })
+  const URI = process.env.URI
+  const USER = process.env.USER
+  const PASSWORD = process.env.PASSWORD
 
-  const URI = process.env.NEO4J_URI
-  const USER = process.env.NEO4J_USERNAME
-  const PASSWORD = process.env.NEO4J_PASSWORD
-  let info: { start: string, destinations: string[]}[] = []
+  let info: { start: any, destinations: any[] }[] = []
 
   // debugging and connecting
   try {
@@ -31,7 +28,7 @@ let driver: any | ManagedTransaction;
     await driver.close()
   }
 
-  // below is example query
+  // query retrieves all nodes
 
   let session = driver.session({ database: 'neo4j' });
 
@@ -41,11 +38,11 @@ let driver: any | ManagedTransaction;
       `
         MATCH (t)
         WHERE ((t:junction) OR (t:entrance))
-        RETURN t.name AS start, 
+        RETURN t AS start, 
           COLLECT {
             MATCH (t)-[:CONNECTED_TO]->(v)
             WHERE ((v:junction) OR (v:entrance))
-            RETURN v.name
+            RETURN v
           } AS destinations
       `
     )
@@ -60,6 +57,12 @@ let driver: any | ManagedTransaction;
         destinations: node.get("destinations")
       }
     )
+    // console.log(node.get("start")["properties"])
+  }
+
+  for (let node of info) {
+    console.log(node["start"].properties)
+    // console.log(node["destinations"])
   }
 
   // for (let node of records) {
@@ -79,7 +82,7 @@ let driver: any | ManagedTransaction;
   //   )
   // }
 
-  console.log(info)
+  // console.log(info)
 
 })();
 
@@ -89,47 +92,14 @@ app.get('/', (req: Request, res: Response) => {
 
 // return path; does not work -> returns same route
 // structure a list that returns tuples of latitude and longitude
-app.get('/routes', (req: Request, res: Response) => {
-  let info: {start: [string, number, number], destination: [string, number, number]}[] = [];
+app.get('/route?', (req: Request, res: Response) => {
+  const start = req.query.start
+  const destination = req.query.destination
+  // TODO
 
-  (async () => {
-  // below is example query
+  console.log(req.query)
 
-  let session = driver.session({ database: 'neo4j' });
-
-  let { records, summary } = await session.executeRead(
-    async (tx: ManagedTransaction) => {
-    return await tx.run(
-      `
-        MATCH (p), (q)
-        WHERE ((p:junction) OR (p:entrance)) 
-              AND ((q:junction) OR (q:entrance)) 
-              AND (p)-[:IS_CONNECTED]->(q)
-        RETURN p.name, p.latitude, p.longitude
-      `
-    )
-  })
-
-  for (let node of records) {
-    info.push(
-      {
-        start: [
-                node.get("p.name"),
-                node.get("p.latitude"),
-                node.get("p.longitude")
-              ],
-        destination: [
-                node.get("q.name"),
-                node.get("q.latitude"),
-                node.get("q.longitude")
-              ]
-      }
-    )
-  }
-  })();
-
-  res.send("routes");
-
+  res.send(start + " " + destination)
 });
 
 process.on('exit', async () => {
