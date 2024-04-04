@@ -1,6 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
-import { Driver, ManagedTransaction, TransactionPromise } from 'neo4j-driver-core';
+import { Driver, ManagedTransaction, Session, TransactionPromise } from 'neo4j-driver-core';
 
 dotenv.config();
 
@@ -9,6 +9,7 @@ const port = process.env.PORT;
 
 const neo4j = require('neo4j-driver');
 let driver: ManagedTransaction | any;
+let session: Session;
 
 (async () => {
   const URI = process.env.URI
@@ -30,7 +31,7 @@ let driver: ManagedTransaction | any;
 
   // query retrieves all nodes
 
-  let session = driver.session({ database: 'neo4j' });
+  session = driver.session({ database: 'neo4j' });
 
   let { records, summary } = await session.executeRead(
     async (tx: ManagedTransaction) => {
@@ -48,8 +49,6 @@ let driver: ManagedTransaction | any;
     )
   })
 
-  // console.log(records)
-
   for (let node of records) {
     info.push(
       {
@@ -60,10 +59,11 @@ let driver: ManagedTransaction | any;
     // console.log(node.get("start")["properties"])
   }
 
-  for (let node of info) {
-    console.log(node["start"].properties)
+  // for (let node of info) {
+    // console.log(node["start"].properties)
     // console.log(node["destinations"])
-  }
+  //   console.log(node)
+  // }
 
   // for (let node of records) {
   //   info.push(
@@ -90,17 +90,26 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Gopher Tunnels back-end');
 });
 
-// return path; does not work -> returns same route
+// return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
   const start = req.query.start
   const destination = req.query.destination
-  // TODO
+  session = driver.session({ database: 'neo4j' })
 
-  console.log(req.query)
-
-  res.send(start + " " + destination)
-});
+  // shortest route example
+  (() => {session.executeRead(
+    async (tx: ManagedTransaction) => {
+    return await tx.run( 
+      `
+        MATCH p=shortestPath((startNode:entrance|junction {name: 'Kolthoff'})-[*]-(endNode:entrance|junction {name: 'Northrop'}))
+        RETURN p
+      `
+    )
+    }
+  )
+  });
+  })
 
 process.on('exit', async () => {
   try {
