@@ -1,6 +1,7 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { Driver, ManagedTransaction, Session, TransactionPromise } from 'neo4j-driver-core';
+// import * as queries from './queries.ts'
 
 dotenv.config();
 
@@ -8,6 +9,7 @@ const app: Express = express();
 const port = process.env.PORT;
 
 const neo4j = require('neo4j-driver');
+const queries = require('./queries')
 let driver: ManagedTransaction | any;
 let session: Session;
 
@@ -19,8 +21,9 @@ let session: Session;
   let info: { start: any, destinations: any[] }[] = []
 
   // debugging and connecting
+
   try {
-    driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))
+    driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
     const serverInfo = await driver.getServerInfo()
     console.log('Connection estabilished')
     console.log(serverInfo)
@@ -35,19 +38,9 @@ let session: Session;
 
   let { records, summary } = await session.executeRead(
     async (tx: ManagedTransaction) => {
-    return await tx.run(
-      `
-        MATCH (t)
-        WHERE ((t:junction) OR (t:entrance))
-        RETURN t AS start, 
-          COLLECT {
-            MATCH (t)-[:CONNECTED_TO]->(v)
-            WHERE ((v:junction) OR (v:entrance))
-            RETURN v
-          } AS destinations
-      `
-    )
-  })
+      return await tx.run(queries.getAllMajor())
+    }
+  )
 
   for (let node of records) {
     info.push(
@@ -56,8 +49,10 @@ let session: Session;
         destinations: node.get("destinations")
       }
     )
-    // console.log(node.get("start")["properties"])
+    console.log(node.get("start")["properties"])
   }
+
+  session.close()
 
   // for (let node of info) {
     // console.log(node["start"].properties)
@@ -98,27 +93,23 @@ app.get('/route?', (req: Request, res: Response) => {
   session = driver.session({ database: 'neo4j' })
 
   // shortest route example
-  (() => {session.executeRead(
-    async (tx: ManagedTransaction) => {
-    return await tx.run( 
-      `
-        MATCH p=shortestPath((startNode:entrance|junction {name: 'Kolthoff'})-[*]-(endNode:entrance|junction {name: 'Northrop'}))
-        RETURN p
-      `
-    )
-    }
-  )
-  });
-  })
+  // (() => {session.executeRead(
+  //   async (tx: ManagedTransaction) => {
+  //     return await tx.run(queries.getPath(start, destination))
+  //   }
+  // )
+  // });
 
-process.on('exit', async () => {
-  try {
-    await driver.close()
-  } catch (err: any) {
-    console.log(`Error ${err}: ${err.cause}`)
-  }
-  console.log("Program Exited")
-  return
+  session.close()
+
+})
+
+// close database connection when app is exited
+process.on("exit", async (code) => {
+	await driver.close();
+});
+process.on("SIGINT", async () => {
+	await driver.close();
 });
 
 app.listen(port, () => {
