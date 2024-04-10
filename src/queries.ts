@@ -16,3 +16,11 @@ export function getPath(start: string, destination: string) {
             (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"})) 
             RETURN p`
 };
+
+export function searchName(query: string) {
+    return `
+        MATCH (n:entrance|junction)
+        WHERE n.name STARTS WITH ${query}
+        RETURN n
+    `
+};
