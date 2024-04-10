@@ -1,7 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { Driver, ManagedTransaction, Session, TransactionPromise } from 'neo4j-driver-core';
-// import * as queries from './queries.ts'
 
 dotenv.config();
 
@@ -18,7 +17,7 @@ let session: Session;
   const USER = process.env.USER
   const PASSWORD = process.env.PASSWORD
 
-  let info: { start: any, destinations: any[] }[] = []
+  const info: { start: any, destinations: any[] }[] = []
 
   // debugging and connecting
 
@@ -33,7 +32,6 @@ let session: Session;
   }
 
   // query retrieves all nodes
-
   session = driver.session({ database: 'neo4j' });
 
   let { records, summary } = await session.executeRead(
@@ -49,7 +47,7 @@ let session: Session;
         destinations: node.get("destinations")
       }
     )
-    console.log(node.get("start")["properties"])
+    // console.log(node.get("start")["properties"])
   }
 
   session.close()
@@ -88,26 +86,64 @@ app.get('/', (req: Request, res: Response) => {
 // return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
-  const start = req.query.start
-  const destination = req.query.destination
-  session = driver.session({ database: 'neo4j' })
+  (async () => {
+    const start = req.query.start
+    const destination = req.query.destination
+    session = driver.session({ database: 'neo4j' });
 
-  // shortest route example
-  // (() => {session.executeRead(
-  //   async (tx: ManagedTransaction) => {
-  //     return await tx.run(queries.getPath(start, destination))
-  //   }
-  // )
-  // });
+    // shortest route example
+    let { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => {
+        return await tx.run(queries.getPath(start, destination))
+      }
+    )
 
-  session.close()
+    // process path that is returned
+    let path
+    const route: { name: string, location: { latitude: string, longitude: string }}[] = []
 
+    for (let record of records) {
+      path = record.get('p').segments
+      const start_location = path[0].start
+
+      route.push(
+        {
+          name: start_location.properties.name,
+          location: {
+            latitude: start_location.properties.latitude,
+            longitude: start_location.properties.longitude
+          }
+        }
+      )
+
+      for (let segment of path) {
+        let node = segment.end
+
+        route.push(
+          {
+            name: node.properties.name,
+            location: {
+              latitude: node.properties.latitude,
+              longitude: node.properties.longitude
+            }
+          }
+        )
+      }
+    }
+
+    res.send(route)
+    
+  })()
+
+  // session.close()
 })
 
 // close database connection when app is exited
 process.on("exit", async (code) => {
 	await driver.close();
 });
+
+// close database connection when SIGINT exits the app (testing purposes)
 process.on("SIGINT", async () => {
 	await driver.close();
 });

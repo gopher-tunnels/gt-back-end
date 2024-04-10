@@ -12,8 +12,7 @@ export function getAllMajor() {
 };
 
 export function getPath(start: string, destination: string) {
-    return `
-        MATCH p=shortestPath((startNode:entrance|junction {name: ${start}})-[*]-(endNode:entrance|junction {name: ${destination}}))
-        RETURN p
-    `
+    return `MATCH p=shortestPath(
+            (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"})) 
+            RETURN p`
 };
