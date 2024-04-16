@@ -98,10 +98,11 @@ app.get('/route?', (req: Request, res: Response) => {
       }
     )
 
-    // process path that is returned
+    // processed path that is returned
     let path
     const route: { name: string, location: { latitude: string, longitude: string }}[] = []
 
+    // processes intermediary and destination nodes
     for (let record of records) {
       path = record.get('p').segments
       const start_location = path[0].start
