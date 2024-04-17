@@ -83,6 +83,60 @@ app.get('/', (req: Request, res: Response) => {
   res.send('Gopher Tunnels back-end');
 });
 
+app.get('/short?', (req: Request, res: Response) => {
+    (async () => {
+        const start = req.query.start
+        const destination = req.query.destination
+        session = driver.session({ database: 'neo4j' });
+
+    let { records, summary } = await session.executeRead(
+          async (tx: ManagedTransaction) => {
+            return await tx.run(queries.djykstraPath(start, destination))
+          }
+        )
+    console.log(records)
+
+    // processed path that is returned
+        let path
+        const route: { name: string, location: { latitude: string, longitude: string }}[] = []
+
+        // processes intermediary and destination nodes
+        for (let record of records) {
+          path = record.get('path').segments
+          const start_location = path[0].start
+
+          route.push(
+            {
+              name: start_location.properties.name,
+              location: {
+                latitude: start_location.properties.latitude,
+                longitude: start_location.properties.longitude
+              }
+            }
+          )
+
+          for (let segment of path) {
+            let node = segment.end
+
+            route.push(
+              {
+                name: node.properties.name,
+                location: {
+                  latitude: node.properties.latitude,
+                  longitude: node.properties.longitude
+                }
+              }
+            )
+          }
+        }
+
+    res.send(route)
+
+  })()
+
+  // session.close()
+})
+
 // return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {

@@ -24,3 +24,12 @@ export function searchName(query: string) {
         RETURN n
     `
 };
+
+export function djykstraPath(start: string, destination: string){
+    return `
+        match (a:entrance) where a.name = "TateNW"
+        match (b:entrance) where b.name = "VincentNE"
+        call apoc.algo.dijkstra(a,b,'CONNECTED_TO','distanceMeters') yield path, weight
+        return path
+    `
+};
