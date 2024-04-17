@@ -8,7 +8,8 @@ const app: Express = express();
 const port = process.env.PORT;
 
 const neo4j = require('neo4j-driver');
-const queries = require('./queries')
+const queries = require('./queries');
+const processing = require('./processing');
 let driver: ManagedTransaction | any;
 let session: Session;
 
@@ -99,44 +100,10 @@ app.get('/route?', (req: Request, res: Response) => {
     )
 
     // processed path that is returned
-    let path
-    const route: { name: string, location: { latitude: string, longitude: string }}[] = []
+    res.send(processing.processPath(records))
 
-    // processes intermediary and destination nodes
-    for (let record of records) {
-      path = record.get('p').segments
-      const start_location = path[0].start
-
-      route.push(
-        {
-          name: start_location.properties.name,
-          location: {
-            latitude: start_location.properties.latitude,
-            longitude: start_location.properties.longitude
-          }
-        }
-      )
-
-      for (let segment of path) {
-        let node = segment.end
-
-        route.push(
-          {
-            name: node.properties.name,
-            location: {
-              latitude: node.properties.latitude,
-              longitude: node.properties.longitude
-            }
-          }
-        )
-      }
-    }
-
-    res.send(route)
-    
   })()
 
-  // session.close()
 })
 
 app.get('/search?', (req: Request, res: Response) => {
@@ -152,33 +119,21 @@ app.get('/search?', (req: Request, res: Response) => {
     )
 
     // queries matched
-    let location
-    const matches: { name: string, location: { latitude: string, longitude: string }}[] = []
+    res.send(processing.processSearch(records))
 
-    for (let record of records) {
-      location = record.get('n')
-      matches.push(
-        {
-          name: location.properties["name"],
-          location: {
-            latitude: location.properties["latitude"],
-            longitude: location.properties["longitude"]
-          }
-        }
-      )
-    }
-
-    res.send(matches)
   })()
+
 })
 
 // close database connection when app is exited
 process.on("exit", async (code) => {
+  await session.close();
 	await driver.close();
 });
 
 // close database connection when SIGINT exits the app (testing purposes)
 process.on("SIGINT", async () => {
+  await session.close();
 	await driver.close();
 });
 
