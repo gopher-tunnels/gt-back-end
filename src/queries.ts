@@ -20,7 +20,7 @@ export function getPath(start: string, destination: string) {
 export function searchName(query: string) {
     return `
         MATCH (n:entrance|junction)
-        WHERE n.name STARTS WITH ${query}
+        WHERE n.name STARTS WITH "${query}"
         RETURN n
     `
 };

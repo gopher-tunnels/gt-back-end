@@ -139,6 +139,39 @@ app.get('/route?', (req: Request, res: Response) => {
   // session.close()
 })
 
+app.get('/search?', (req: Request, res: Response) => {
+  (async () => {
+    const name = req.query.name
+    session = driver.session({ database: 'neo4j' });
+
+    // shortest route example
+    let { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => {
+        return await tx.run(queries.searchName(name))
+      }
+    )
+
+    // queries matched
+    let location
+    const matches: { name: string, location: { latitude: string, longitude: string }}[] = []
+
+    for (let record of records) {
+      location = record.get('n')
+      matches.push(
+        {
+          name: location.properties["name"],
+          location: {
+            latitude: location.properties["latitude"],
+            longitude: location.properties["longitude"]
+          }
+        }
+      )
+    }
+
+    res.send(matches)
+  })()
+})
+
 // close database connection when app is exited
 process.on("exit", async (code) => {
 	await driver.close();
