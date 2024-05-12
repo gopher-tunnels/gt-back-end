@@ -89,28 +89,8 @@ app.get('/', (req: Request, res: Response) => {
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
   (async () => {   
-    const MAPTOKEN = process.env.MAPTOKEN
-    const start: {longitude: Number, latitude: Number} | any = req.query.start
-    const destination: {longitude: Number, latitude: Number} | any = req.query.destination
-    session = driver.session({ database: 'neo4j' });
-
-    try {
-      const query = axios.get(
-                `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
-            ).then((response) => {
-                console.log(response)
-                // const json = response.json();
-                // const data = json.routes[0];
-                // const route = data.geometry.coordinates;
-
-                // console.log(json.routes);
-                // console.log(json.routes[0].legs[0].steps);
-                return response
-            }
-        )
-    } catch (err: any) {
-      console.log("Query issue")
-    }
+    const start = req.query.start
+    const destination = req.query.destination
 
     // shortest route example
     let { records, summary } = await session.executeRead(
