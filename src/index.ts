@@ -1,5 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
+import axios from "axios";
 import { Driver, ManagedTransaction, Session, TransactionPromise } from 'neo4j-driver-core';
 
 dotenv.config();
@@ -87,10 +88,29 @@ app.get('/', (req: Request, res: Response) => {
 // return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
-  (async () => {
-    const start = req.query.start
-    const destination = req.query.destination
+  (async () => {   
+    const MAPTOKEN = process.env.MAPTOKEN
+    const start: {longitude: Number, latitude: Number} | any = req.query.start
+    const destination: {longitude: Number, latitude: Number} | any = req.query.destination
     session = driver.session({ database: 'neo4j' });
+
+    try {
+      const query = axios.get(
+                `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
+            ).then((response) => {
+                console.log(response)
+                // const json = response.json();
+                // const data = json.routes[0];
+                // const route = data.geometry.coordinates;
+
+                // console.log(json.routes);
+                // console.log(json.routes[0].legs[0].steps);
+                return response
+            }
+        )
+    } catch (err: any) {
+      console.log("Query issue")
+    }
 
     // shortest route example
     let { records, summary } = await session.executeRead(
