@@ -88,7 +88,7 @@ app.get('/', (req: Request, res: Response) => {
 // return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
-  (async () => {
+  (async () => {   
     const MAPTOKEN = process.env.MAPTOKEN
     const start: {longitude: Number, latitude: Number} | any = req.query.start
     const destination: {longitude: Number, latitude: Number} | any = req.query.destination
@@ -111,8 +111,7 @@ app.get('/route?', (req: Request, res: Response) => {
     } catch (err: any) {
       console.log("Query issue")
     }
-    
-    
+
     // shortest route example
     let { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
