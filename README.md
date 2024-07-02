@@ -39,7 +39,7 @@ npm run dev
 ```
 
 ### 4. Connecting
-For testing, ```bash npm run dev ``` will start the server and connect to the database
+For testing, ```npm run dev``` will start the server and connect to the database
 
 Routes:
 1. '/route?'
