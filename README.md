@@ -39,7 +39,7 @@ npm run dev
 ```
 
 ### 4. Connecting
-Install neo4j-driver-core and nodemon
+**Install neo4j-driver-core and nodemon**
 
 Yarn:
 
@@ -55,18 +55,25 @@ npm install neo4j-driver-core nodemon
 
 For testing, ```npm run dev``` will start the server and connect to the database
 
-Routes:
+**Routes**:
+
+**Note**: for query parameters, ensure all characters in string are lowercase
+
 1. '/route?'
+- Service: routing from start to destination (between buildings only)
 - Type: GET
 - Query Params: (start: string), (destination: string)
-- Service: routing from start to destination (between buildings only)
+  - Ex: http://localhost:PORT/route?start=tate&destination=smith
+  - Will return an empty list if either query parameter isn't a building name or route isn't possible
 
 2. '/search?'
+- Service: search bar functionality
 - Type: GET
 - Query Params: (name: string)
-- Service: search bar functionality
+  - Ex: 'http://localhost:PORT/route?name=g
+  - Will return an empty list if search input doesn't match any building names
 
-Successful Connection to AuraDB:
+**Successful Connection to AuraDB**:
 
 ```bash
 Connection estabilished
@@ -77,7 +84,7 @@ ServerInfo {
 }
 ```
 
-Unsuccessful Connection:
+**Unsuccessful Connection**:
 
 ```bash
 Connection error
@@ -103,8 +110,9 @@ Neo4jError: Pool is closed, it is no more able to serve requests.
 }
 ```
 
-Common causes for connection error:
+**Common causes for connection error**:
 - Instance is deleted or inactive
 - Authentication credentials incorrect
+- .env variables misconfigured
 
 If you keep getting an unsuccessful connection to AuraDB, please bring it up!
