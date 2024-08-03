@@ -52,7 +52,7 @@ let session: Session;
     // console.log(node.get("start")["properties"])
   }
 
-  session.close()
+  // await session.close()
 
   // for (let node of info) {
     // console.log(node["start"].properties)
@@ -174,8 +174,6 @@ process.on("exit", async (code) => {
   await session.close();
 	await driver.close();
 });
-
-
 
 app.listen(port, () => {
   console.log(`App is listening on ${port}`);
