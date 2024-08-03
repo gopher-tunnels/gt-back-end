@@ -15,9 +15,9 @@ let driver: ManagedTransaction | any;
 let session: Session;
 
 (async () => {
-  const URI = process.env.URI
-  const USER = process.env.USER
-  const PASSWORD = process.env.PASSWORD
+  const URI = process.env.NEO4J_URI
+  const USER = process.env.NEO4J_USER
+  const PASSWORD = process.env.NEO4J_PASSWORD
 
   const info: { start: any, destinations: any[] }[] = []
 
@@ -88,29 +88,33 @@ app.get('/', (req: Request, res: Response) => {
 // return path; dummy route -> returns same route
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
-  (async () => {   
-    const MAPTOKEN = process.env.MAPTOKEN
-    const start: {longitude: Number, latitude: Number} | any = req.query.start
-    const destination: {longitude: Number, latitude: Number} | any = req.query.destination
+  (async () => {
+    // instead of going forwards, go backwards to find user location, getting to closest building
+    // have a confidece bound of some sort (greedy) 
+    // const MAPTOKEN = process.env.MAPTOKEN
+    // const start: {longitude: Number, latitude: Number} | any = req.query.start
+    // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
+    const start = req.query.start
+    const destination = req.query.destination
+
     session = driver.session({ database: 'neo4j' });
 
-    try {
-      const query = axios.get(
-                `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
-            ).then((response) => {
-                console.log(response)
-                // const json = response.json();
-                // const data = json.routes[0];
-                // const route = data.geometry.coordinates;
+    // try {
+    //   const query = axios.get(
+    //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
+    //         ).then((response) => {
+    //             console.log(response)
+    //             // const json = response.json();
+    //             // const data = json.routes[0];
+    //             // const route = data.geometry.coordinates;
 
-                // console.log(json.routes);
-                // console.log(json.routes[0].legs[0].steps);
-                return response
-            }
-        )
-    } catch (err: any) {
-      console.log("Query issue")
-    }
+    //             // console.log(json.routes);
+    //             // console.log(json.routes[0].legs[0].steps);
+    //             return response
+    //         })
+    // } catch (err: any) {
+    //   console.log("Query issue")
+    // }
 
     // shortest route example
     let { records, summary } = await session.executeRead(
@@ -120,7 +124,7 @@ app.get('/route?', (req: Request, res: Response) => {
     )
 
     // processed path that is returned
-    res.send(processing.processPath(records))
+    res.json(processing.processPath(records))
 
   })()
 
@@ -139,11 +143,31 @@ app.get('/search?', (req: Request, res: Response) => {
     )
 
     // queries matched
-    res.send(processing.processSearch(records))
+    res.json(processing.processSearch(records))
 
   })()
 
 })
+
+// gets top 5 popular routes
+app.get('/popular', (req: Request, res: Response) => {
+  (async () => {
+    session = driver.session({ database: 'neo4j' });
+
+    let { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => {
+        return await tx.run(queries.getPopular())
+      }
+    )
+
+    res.json(processing.processPopular(records))
+  })()
+})
+
+// close database connection when SIGINT exits the app (testing purposes)
+process.on("SIGINT", async () => {
+  process.exit(1)
+});
 
 // close database connection when app is exited
 process.on("exit", async (code) => {
@@ -151,11 +175,7 @@ process.on("exit", async (code) => {
 	await driver.close();
 });
 
-// close database connection when SIGINT exits the app (testing purposes)
-process.on("SIGINT", async () => {
-  await session.close();
-	await driver.close();
-});
+
 
 app.listen(port, () => {
   console.log(`App is listening on ${port}`);

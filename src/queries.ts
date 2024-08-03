@@ -20,7 +20,15 @@ export function getPath(start: string, destination: string) {
 export function searchName(query: string) {
     return `
         MATCH (n:entrance|junction)
-        WHERE n.name STARTS WITH "${query}"
-        RETURN n
-    `
+        WHERE n.name STARTS WITH "${query.toLowerCase()}"
+        RETURN n 
+        LIMIT 5`
 };
+
+export function getPopular() {
+    return `
+        MATCH (a)-[b]->(c) 
+        RETURN a.name AS start,  c.name AS destination, b.visits AS visits
+        ORDER BY visits DESC
+        LIMIT 5`
+}

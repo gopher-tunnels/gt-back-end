@@ -54,3 +54,17 @@ export function processSearch(records: any) {
 
     return matches
 }
+
+export function processPopular(records: any) {
+    const routes: any = []
+
+    for (const record of records) {
+      const route: any = {}
+      for (const field of record.keys)
+        field == "visits" ? route[field] = record.get(field).low : route[field] = record.get(field)
+        
+      routes.push(route)
+    }
+
+    return { routes: routes }
+}
