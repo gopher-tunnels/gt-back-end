@@ -73,6 +73,21 @@ For testing, ```npm run dev``` will start the server and connect to the database
   - Ex: 'http://localhost:PORT/route?name=g
   - Will return an empty list if search input doesn't match any building names
 
+Query the following buildings as they are spelled out
+  - smith
+  - kolthoff
+  - walter
+  - johnston
+  - northrop
+  - northrop garage
+  - morill
+  - tate
+  - murphy
+  - ford
+  - vincent
+
+For searching (2), uppercase and lowercase letters don't matter, but adding in additional words like "walter library" or "john t. tate hall" won't work since the search doesn't match names on any substring, but rather the input substring starting from the beginning of the name (so "for" or "fo" would return information about Ford Hall, but "rd" or "ford hall" won't). Similarly for routing (1), the route also matches by name and must be lowercase.
+
 **Successful Connection to AuraDB**:
 
 ```bash
