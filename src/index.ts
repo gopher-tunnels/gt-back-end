@@ -1,5 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import dotenv from 'dotenv';
+import axios from "axios";
 import { Driver, ManagedTransaction, Session, TransactionPromise } from 'neo4j-driver-core';
 
 dotenv.config();
@@ -8,14 +9,15 @@ const app: Express = express();
 const port = process.env.PORT;
 
 const neo4j = require('neo4j-driver');
-const queries = require('./queries')
+const queries = require('./queries');
+const processing = require('./processing');
 let driver: ManagedTransaction | any;
 let session: Session;
 
 (async () => {
-  const URI = process.env.URI
-  const USER = process.env.USER
-  const PASSWORD = process.env.PASSWORD
+  const URI = process.env.NEO4J_URI
+  const USER = process.env.NEO4J_USER
+  const PASSWORD = process.env.NEO4J_PASSWORD
 
   const info: { start: any, destinations: any[] }[] = []
 
@@ -50,7 +52,7 @@ let session: Session;
     // console.log(node.get("start")["properties"])
   }
 
-  session.close()
+  // await session.close()
 
   // for (let node of info) {
     // console.log(node["start"].properties)
@@ -87,9 +89,32 @@ app.get('/', (req: Request, res: Response) => {
 // structure a list that returns tuples of latitude and longitude
 app.get('/route?', (req: Request, res: Response) => {
   (async () => {
+    // instead of going forwards, go backwards to find user location, getting to closest building
+    // have a confidece bound of some sort (greedy) 
+    // const MAPTOKEN = process.env.MAPTOKEN
+    // const start: {longitude: Number, latitude: Number} | any = req.query.start
+    // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
     const start = req.query.start
     const destination = req.query.destination
+
     session = driver.session({ database: 'neo4j' });
+
+    // try {
+    //   const query = axios.get(
+    //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
+    //         ).then((response) => {
+    //             console.log(response)
+    //             // const json = response.json();
+    //             // const data = json.routes[0];
+    //             // const route = data.geometry.coordinates;
+
+    //             // console.log(json.routes);
+    //             // console.log(json.routes[0].legs[0].steps);
+    //             return response
+    //         })
+    // } catch (err: any) {
+    //   console.log("Query issue")
+    // }
 
     // shortest route example
     let { records, summary } = await session.executeRead(
@@ -99,44 +124,10 @@ app.get('/route?', (req: Request, res: Response) => {
     )
 
     // processed path that is returned
-    let path
-    const route: { name: string, location: { latitude: string, longitude: string }}[] = []
+    res.json(processing.processPath(records))
 
-    // processes intermediary and destination nodes
-    for (let record of records) {
-      path = record.get('p').segments
-      const start_location = path[0].start
-
-      route.push(
-        {
-          name: start_location.properties.name,
-          location: {
-            latitude: start_location.properties.latitude,
-            longitude: start_location.properties.longitude
-          }
-        }
-      )
-
-      for (let segment of path) {
-        let node = segment.end
-
-        route.push(
-          {
-            name: node.properties.name,
-            location: {
-              latitude: node.properties.latitude,
-              longitude: node.properties.longitude
-            }
-          }
-        )
-      }
-    }
-
-    res.send(route)
-    
   })()
 
-  // session.close()
 })
 
 app.get('/search?', (req: Request, res: Response) => {
@@ -152,33 +143,45 @@ app.get('/search?', (req: Request, res: Response) => {
     )
 
     // queries matched
-    let location
-    const matches: { name: string, location: { latitude: string, longitude: string }}[] = []
+    res.json(processing.processSearch(records))
 
-    for (let record of records) {
-      location = record.get('n')
-      matches.push(
-        {
-          name: location.properties["name"],
-          location: {
-            latitude: location.properties["latitude"],
-            longitude: location.properties["longitude"]
-          }
-        }
-      )
-    }
+  })()
 
-    res.send(matches)
+})
+
+// gets top 5 popular routes
+app.get('/popular', (req: Request, res: Response) => {
+  (async () => {
+    session = driver.session({ database: 'neo4j' });
+
+    let { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => {
+        return await tx.run(queries.getPopular())
+      }
+    )
+
+    res.json(processing.processPopular(records))
   })()
 })
 
-// close database connection when app is exited
-process.on("exit", async (code) => {
-	await driver.close();
+
+// update or create route preferences
+app.post('/setroute', (req: Request, res: Response) => {
+  (async () => {
+    const start = req.body.start
+    const destination = req.body.destination
+
+  })()
+})
+
+// close exit app when app is interrupted
+process.on("SIGINT", async () => {
+  process.exit(1)
 });
 
-// close database connection when SIGINT exits the app (testing purposes)
-process.on("SIGINT", async () => {
+// close database connection when app is exited
+process.on("exit", async (code) => {
+  await session.close();
 	await driver.close();
 });
 
