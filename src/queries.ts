@@ -13,7 +13,7 @@ export function getAllMajor() {
 
 export function getPath(start: string, destination: string) {
     return `MATCH p=shortestPath(
-            (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"})) 
+            (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"}))
             RETURN p`
 };
 
@@ -27,8 +27,8 @@ export function searchName(query: string) {
 
 export function getPopular() {
     return `
-        MATCH (a)-[b]->(c) 
-        RETURN a.name AS start,  c.name AS destination, b.visits AS visits
+        MATCH (a)-[b:ROUTED_TO]->(c) 
+        RETURN a.name AS start, c.name AS destination, b.visits AS visits, b.path AS path
         ORDER BY visits DESC
         LIMIT 5`
 }

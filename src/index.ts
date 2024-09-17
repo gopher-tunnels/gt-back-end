@@ -164,7 +164,17 @@ app.get('/popular', (req: Request, res: Response) => {
   })()
 })
 
-// close database connection when SIGINT exits the app (testing purposes)
+
+// update or create route preferences
+app.post('/setroute', (req: Request, res: Response) => {
+  (async () => {
+    const start = req.body.start
+    const destination = req.body.destination
+
+  })()
+})
+
+// close exit app when app is interrupted
 process.on("SIGINT", async () => {
   process.exit(1)
 });
