@@ -4,6 +4,9 @@ import routingRoutes from './routes/routing.route';
 // import axios from "axios";
 import { Driver, ManagedTransaction, routing, Session, TransactionPromise } from 'neo4j-driver-core';
 
+import swaggerUi from "swagger-ui-express"
+import swaggerOutput from './swagger_output.json'
+
 dotenv.config();
 
 const app: Express = express();
@@ -15,28 +18,43 @@ const processing = require('./processing');
 export let driver: any;
 export let session: Session;
 
-const swaggerUi = require('swagger-ui-express');
-const swaggerJsDoc = require('swagger-jsdoc');
+// ANNOTATIONS
+// const swaggerUi = require('swagger-ui-express');
+// const swaggerJsDoc = require('swagger-jsdoc');
+// const swaggerOptions = {
+//   swaggerDefinition: {
+//     openai: '3.0.0',
+//     info: {
+//       title: 'Express API for JSONPlaceholder',
+//       version: '1.0.0',
+//       description:
+//         'This is a REST API application made with Express. It retrieves data from JSONPlaceholder.',
+//       license: {
+//         name: 'Licensed Under MIT',
+//         url: 'https://spdx.org/licenses/MIT.html',
+//       },
+//       contact: {
+//         name: 'JSONPlaceholder',
+//         url: 'https://jsonplaceholder.typicode.com',
+//       },
+//     },
+//     servers: [
+//       {
+//         url: 'http://localhost:8000',
+//         description: 'Development server',
+//       },
+//     ]
+//   },
+//   apis: ['./routes/*.ts'], // files containing annotations as above
+// };
 
-const swaggerOptions = {
-  swaggerDefinition: {
-    myapi: '3.0.0',
-    info: {
-      title: 'My API',
-      version: '1.0.0',
-      description: 'API documentation',
-    },
-    servers: [
-      {
-        url: 'http://localhost:8000',
-      },
-    ],
-  },
-  apis: ['./annotations/*.js'], // files containing annotations as above
-};
+// const swaggerSpec  = swaggerJsDoc(swaggerOptions);
 
-const swaggerDocs = swaggerJsDoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+// app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerOutput));
+
+// END_OF_ANNOTATIONS
 
 (async () => {
   const URI = process.env.NEO4J_URI
@@ -51,7 +69,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
     driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
     const serverInfo = await driver.getServerInfo()
     console.log('Connection estabilished')
-    // console.log(serverInfo)
+    console.log(serverInfo)
   } catch(err: any) {
     console.log(`Connection error\n${err}\nCause: ${err.cause}`)
   }
