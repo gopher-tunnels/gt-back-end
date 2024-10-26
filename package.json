@@ -16,13 +16,17 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "neo4j-driver": "^5.18.0",
-    "neo4j-driver-core": "^5.22.0"
+    "neo4j-driver-core": "^5.22.0",
+    "swagger-autogen": "^2.23.7",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.19",
+    "@types/swagger-ui-express": "^4.1.6",
     "nodemon": "^3.1.4",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.5"
+    "typescript": "^5.6.3"
   }
 }
