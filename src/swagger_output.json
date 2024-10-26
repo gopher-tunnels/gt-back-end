@@ -12,7 +12,7 @@
     }
   ],
   "paths": {
-    "/route?": {
+    "/route": {
       "get": {
         "description": "",
         "responses": {
@@ -23,6 +23,16 @@
       }
     },
     "/popular": {
+      "get": {
+        "description": "",
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/search": {
       "get": {
         "description": "",
         "responses": {

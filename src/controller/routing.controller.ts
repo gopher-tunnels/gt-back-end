@@ -1,7 +1,36 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
-import { ManagedTransaction } from 'neo4j-driver-core';
+import { Driver, ManagedTransaction, routing, Session, TransactionPromise } from 'neo4j-driver-core';
+import dotenv from 'dotenv';
 
-let { driver, session } = require("../index");
+dotenv.config();
+
+const neo4j = require('neo4j-driver');
+export let driver: any;
+export let session: Session;
+
+// connecting to database
+(async () => {
+  const URI = process.env.NEO4J_URI
+  const USER = process.env.NEO4J_USERNAME
+  const PASSWORD = process.env.NEO4J_PASSWORD
+
+  const info: { start: any, destinations: any[] }[] = []
+
+  // debugging and connecting
+
+  try {
+    driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
+    const serverInfo = await driver.getServerInfo()
+    console.log('Connection estabilished')
+    console.log(serverInfo)
+  } catch(err: any) {
+    console.log(`Connection error\n${err}\nCause: ${err.cause}`)
+  }
+
+})();
+
+// establish a valid session
+session = driver.session({ database: 'neo4j' });
 
 export function buildingRouting(req: Request, res: Response, next: NextFunction) {
   (async () => {
@@ -13,7 +42,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     const start = req.query.start
     const destination = req.query.destination
 
-    session = driver.session({ database: 'neo4j' });
+    // session = driver.session({ database: 'neo4j' });
 
     // try {
     //   const query = axios.get(
@@ -75,10 +104,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
           }
         )
       }
-    }
-
-    // TODO: query database to add new route preference
-    
+    }    
     res.json(route);
   })()
 }
@@ -86,7 +112,6 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
 // gets top 5 popular routes
 export function popularRoutes(req: Request, res: Response, next: NextFunction) {
   (async () => {
-    session = driver.session({ database: 'neo4j' });
 
     let { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
@@ -113,3 +138,51 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
   })()
 }
 
+export function searchBar(req: Request, res: Response) {
+  (async () => {
+    const name: any = req.query.name
+
+    // shortest route example
+    let { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => {
+        return await tx.run(
+          `MATCH (n:entrance|junction)
+          WHERE n.name STARTS WITH "${name?.toLowerCase()}"
+          RETURN n 
+          LIMIT 5`
+        )
+      }
+    )
+
+    let location
+    const matches: { name: string, location: { latitude: string, longitude: string }}[] = []
+
+    for (let record of records) {
+      location = record.get('n')
+      matches.push(
+        {
+          name: location.properties["name"],
+          location: {
+            latitude: location.properties["latitude"],
+            longitude: location.properties["longitude"]
+          }
+        }
+      )
+    }
+
+    // queries matched
+    res.json(matches)
+
+  })()
+}
+
+// close database connection when app is exited
+process.on("exit", async (code) => {
+  try {
+    await session.close();
+	  await driver.close();
+  } catch {
+    console.log("Database connection failed to close");
+  }
+  
+});
