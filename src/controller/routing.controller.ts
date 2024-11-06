@@ -8,7 +8,9 @@ const neo4j = require('neo4j-driver');
 export let driver: any;
 export let session: Session;
 
-// connecting to database
+export let BUILDINGS: any[] = [];
+
+// connecting to database and load static data
 (async () => {
   const URI = process.env.NEO4J_URI
   const USER = process.env.NEO4J_USERNAME
@@ -23,6 +25,13 @@ export let session: Session;
     const serverInfo = await driver.getServerInfo()
     console.log('Connection estabilished')
     console.log(serverInfo)
+    session = driver.session({ database: 'neo4j' });
+
+    // might be a stupid long-term solution, but works for now
+    const { records, summary } = await session.executeRead(
+      async (tx: ManagedTransaction) => await tx.run(`MATCH (b:building) RETURN b`) // might just take name?
+    )
+    BUILDINGS = records.map(record => record.get("b").properties).filter(props => props.name != undefined);
   } catch(err: any) {
     console.log(`Connection error\n${err}\nCause: ${err.cause}`)
   }
@@ -30,7 +39,6 @@ export let session: Session;
 })();
 
 // establish a valid session
-session = driver.session({ database: 'neo4j' });
 
 export function buildingRouting(req: Request, res: Response, next: NextFunction) {
   (async () => {
@@ -138,41 +146,12 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
   })()
 }
 
+// could be improved with a fuzzy find or some sorting
 export function searchBar(req: Request, res: Response) {
   (async () => {
-    const name: any = req.query.name
-
-    // shortest route example
-    let { records, summary } = await session.executeRead(
-      async (tx: ManagedTransaction) => {
-        return await tx.run(
-          `MATCH (n:entrance|junction)
-          WHERE n.name STARTS WITH "${name?.toLowerCase()}"
-          RETURN n 
-          LIMIT 5`
-        )
-      }
-    )
-
-    let location
-    const matches: { name: string, location: { latitude: string, longitude: string }}[] = []
-
-    for (let record of records) {
-      location = record.get('n')
-      matches.push(
-        {
-          name: location.properties["name"],
-          location: {
-            latitude: location.properties["latitude"],
-            longitude: location.properties["longitude"]
-          }
-        }
-      )
-    }
-
-    // queries matched
+    let name = req.query.name?.toString().toLowerCase();
+    const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(name)).slice(0, 5)
     res.json(matches)
-
   })()
 }
 
