@@ -4,16 +4,16 @@ import { buildingRouting, popularRoutes, searchBar } from '../controller/routing
 const router = express.Router();
 
 /** 
- * @openapi
- * /routing.routes/route:
+ * @swagger
+ * /route:
  *   get:
- *     summary: some summary
+ *     summary: returns a route from a start location to a destination
  *     description: some description
 */
 router.get('/route', buildingRouting);
 /** 
- * @openapi
- * /routing.routes/popular:
+ * @swagger
+ * /popular:
  *   get:
  *     summary: some summary
  *     description: some description
@@ -21,8 +21,8 @@ router.get('/route', buildingRouting);
 router.get('/popular', popularRoutes);
 
 /** 
- * @openapi
- * /routing.routes/popular:
+ * @swagger
+ * /popular:
  *   get:
  *     summary: some summary
  *     description: some description

@@ -42,8 +42,6 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     const start = req.query.start
     const destination = req.query.destination
 
-    // session = driver.session({ database: 'neo4j' });
-
     // try {
     //   const query = axios.get(
     //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
@@ -66,7 +64,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       async (tx: ManagedTransaction) => {
         return await tx.run(
             `MATCH p=shortestPath(
-            (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"}))
+            (startNode:building {name: \"${start}\"})-[*]-(endNode:building {name: \"${destination}\"}))
             RETURN p`
         )
       }
@@ -140,14 +138,15 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
 
 export function searchBar(req: Request, res: Response) {
   (async () => {
-    const name: any = req.query.name
+    const input: any = req.query.input
+    console.log(input)
 
     // shortest route example
     let { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
         return await tx.run(
-          `MATCH (n:entrance|junction)
-          WHERE n.name STARTS WITH "${name?.toLowerCase()}"
+          `MATCH (n:building)
+          WHERE n.name STARTS WITH "${/*input?.toLowerCase()*/input}"
           RETURN n 
           LIMIT 5`
         )
@@ -184,5 +183,4 @@ process.on("exit", async (code) => {
   } catch {
     console.log("Database connection failed to close");
   }
-  
 });
