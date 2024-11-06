@@ -1,0 +1,89 @@
+Index: Neo4j-b04d4356-Created-2024-03-12.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+># Wait 60 seconds before connecting using these details, or login to https://console.neo4j.io to validate the Aura Instance is available\r\nNEO4J_URI=neo4j+s://45511ca4.databases.neo4j.io\r\nNEO4J_USERNAME=neo4j\r\nNEO4J_PASSWORD=vBtB9nzxP8gf0teeZaHhhGS8tzAXK284_kxlzvS9UD4\r\nAURA_INSTANCEID=b04d4356\r\nAURA_INSTANCENAME=Instance01\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/Neo4j-b04d4356-Created-2024-03-12.txt b/Neo4j-b04d4356-Created-2024-03-12.txt
+--- a/Neo4j-b04d4356-Created-2024-03-12.txt	(revision c0892f2c6f374159dd03c9dc54546f68d4b41483)
++++ b/Neo4j-b04d4356-Created-2024-03-12.txt	(date 1711498437422)
+@@ -3,4 +3,4 @@
+ NEO4J_USERNAME=neo4j
+ NEO4J_PASSWORD=vBtB9nzxP8gf0teeZaHhhGS8tzAXK284_kxlzvS9UD4
+ AURA_INSTANCEID=b04d4356
+-AURA_INSTANCENAME=Instance01
++AURA_INSTANCENAME=Instance01
+\ No newline at end of file
+Index: build/index.js
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>\"use strict\";\r\n\r\nvar __importDefault = (this && this.__importDefault) || function (mod) {\r\n    return (mod && mod.__esModule) ? mod : { \"default\": mod };\r\n};\r\nObject.defineProperty(exports, \"__esModule\", { value: true });\r\nconst express_1 = __importDefault(require(\"express\"));\r\nconst dotenv_1 = __importDefault(require(\"dotenv\"));\r\ndotenv_1.default.config();\r\nconst app = (0, express_1.default)();\r\nconst port = process.env.PORT;\r\nconst neo4j = require('neo4j-driver');\r\n\r\n(async () => {\r\n  require('dotenv').config({\r\n    path: 'Neo4j-b04d4356-Created-2024-03-12.txt',\r\n    debug: true  // to raise file/parsing errors\r\n  })\r\n\r\n  const URI = process.env.NEO4J_URI\r\n  const USER = process.env.NEO4J_USERNAME\r\n  const PASSWORD = process.env.NEO4J_PASSWORD\r\n\r\n  let driver\r\n\r\n  try {\r\n    driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))\r\n    const serverInfo = await driver.getServerInfo()\r\n    console.log('Connection estabilished')\r\n    console.log(serverInfo)\r\n  } catch(err) {\r\n    console.log(`Connection error\\n${err}\\nCause: ${err.cause}`)\r\n    await driver.close()\r\n    return\r\n  }\r\n\r\n  let session = driver.session({ database: 'neo4j' });\r\n\r\n  let { records, summary } = await session.executeRead(async tx => {\r\n    return await tx.run(`\r\n      MATCH (p:MAN)\r\n      RETURN p.name, p.age\r\n      `\r\n    )\r\n  })\r\n\r\n//   console.log(records);                                  \r\n\r\n  for (let record in records) {\r\n    // console.log(record.values())\r\n    console.log(record)\r\n//     let cat1 = record.get(\"p.name\");\r\n//     let cat2 = record.indexOf(\"p.age\");\r\n\r\n//     let name = record._fieldLookup[cat1];\r\n//     let age = record._fieldLookup[cat2]\r\n\r\n//     console.log(`Name: ${record._fields[name]}, Age: ${record._fields[age]}`);\r\n  }\r\n\r\n  console.log(records)\r\n\r\n  await driver.close()\r\n})();\r\n\r\napp.get('/', (req, res) => {\r\n    res.send('Gopher Tunnels back-end');\r\n});\r\napp.listen(port, () => {\r\n    console.log(`App is listening on ${port}`);\r\n});\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/build/index.js b/build/index.js
+--- a/build/index.js	(revision c0892f2c6f374159dd03c9dc54546f68d4b41483)
++++ b/build/index.js	(date 1711495719289)
+@@ -1,5 +1,4 @@
+ "use strict";
+-
+ var __importDefault = (this && this.__importDefault) || function (mod) {
+     return (mod && mod.__esModule) ? mod : { "default": mod };
+ };
+@@ -34,31 +33,7 @@
+     return
+   }
+ 
+-  let session = driver.session({ database: 'neo4j' });
+-
+-  let { records, summary } = await session.executeRead(async tx => {
+-    return await tx.run(`
+-      MATCH (p:MAN)
+-      RETURN p.name, p.age
+-      `
+-    )
+-  })
+-
+-//   console.log(records);                                  
+-
+-  for (let record in records) {
+-    // console.log(record.values())
+-    console.log(record)
+-//     let cat1 = record.get("p.name");
+-//     let cat2 = record.indexOf("p.age");
+-
+-//     let name = record._fieldLookup[cat1];
+-//     let age = record._fieldLookup[cat2]
+-
+-//     console.log(`Name: ${record._fields[name]}, Age: ${record._fields[age]}`);
+-  }
+-
+-  console.log(records)
++  // driver.
+ 
+   await driver.close()
+ })();
+Index: src/index.ts
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import express, { Express, Request, Response } from 'express';\r\nimport dotenv from 'dotenv';\r\nimport { Driver, ManagedTransaction, TransactionPromise } from 'neo4j-driver-core';\r\n\r\ndotenv.config();\r\n\r\nconst app: Express = express();\r\nconst port = process.env.PORT;\r\nconst neo4j = require('neo4j-driver');\r\nlet driver\r\n\r\n(async () => {\r\n  require('dotenv').config({\r\n    path: 'Neo4j-b04d4356-Created-2024-03-12.txt',\r\n    debug: true  // to raise file/parsing errors\r\n  })\r\n\r\n  const URI = process.env.NEO4J_URI\r\n  const USER = process.env.NEO4J_USERNAME\r\n  const PASSWORD = process.env.NEO4J_PASSWORD\r\n\r\n  // debugging and connecting\r\n  try {\r\n    driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))\r\n    const serverInfo = await driver.getServerInfo()\r\n    console.log('Connection estabilished')\r\n    console.log(serverInfo)\r\n  } catch(err: any) {\r\n    console.log(`Connection error\\n${err}\\nCause: ${err.cause}`)\r\n    await driver.close()\r\n  }\r\n\r\n  // below is example query\r\n\r\n  let session = driver.session({ database: 'neo4j' });\r\n\r\n  let { records, summary } = await session.executeRead(\r\n    async (tx: ManagedTransaction) => {\r\n    return await tx.run(`\r\n      MATCH (p)\r\n      RETURN p\r\n      `\r\n    )\r\n  })\r\n\r\n  console.log(records, summary)\r\n\r\n  await driver.close()\r\n})();\r\n\r\napp.get('/', (req: Request, res: Response) => {\r\n  res.send('Gopher Tunnels back-end');\r\n});\r\n\r\nprocess.on('exit', async () => {\r\n  // try {\r\n  //   await driver.close()\r\n  // } catch (err: any) {\r\n  //   console.log(`Error ${err}: ${err.cause}`)\r\n  // }\r\n  console.log(\"Program Exited\")\r\n  return\r\n});\r\n\r\napp.listen(port, () => {\r\n  console.log(`App is listening on ${port}`);\r\n});\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/src/index.ts b/src/index.ts
+--- a/src/index.ts	(revision c0892f2c6f374159dd03c9dc54546f68d4b41483)
++++ b/src/index.ts	(date 1711498935238)
+@@ -36,11 +36,7 @@
+ 
+   let { records, summary } = await session.executeRead(
+     async (tx: ManagedTransaction) => {
+-    return await tx.run(`
+-      MATCH (p)
+-      RETURN p
+-      `
+-    )
++    return await tx.run(`MATCH p=()-[:CONNECTED_TO]->() RETURN p LIMIT 25;`)
+   })
+ 
+   console.log(records, summary)
