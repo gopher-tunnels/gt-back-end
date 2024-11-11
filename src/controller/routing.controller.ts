@@ -50,8 +50,6 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     const start = req.query.start
     const destination = req.query.destination
 
-    // session = driver.session({ database: 'neo4j' });
-
     // try {
     //   const query = axios.get(
     //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
@@ -74,7 +72,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       async (tx: ManagedTransaction) => {
         return await tx.run(
             `MATCH p=shortestPath(
-            (startNode:entrance|junction {name: \"${start}\"})-[*]-(endNode:entrance|junction {name: \"${destination}\"}))
+            (startNode:building {name: \"${start}\"})-[*]-(endNode:building {name: \"${destination}\"}))
             RETURN p`
         )
       }
@@ -149,8 +147,10 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
 // could be improved with a fuzzy find or some sorting
 export function searchBar(req: Request, res: Response) {
   (async () => {
+
     let name = req.query.name?.toString().toLowerCase();
     const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(name)).slice(0, 5)
+
     res.json(matches)
   })()
 }
@@ -163,5 +163,4 @@ process.on("exit", async (code) => {
   } catch {
     console.log("Database connection failed to close");
   }
-  
 });

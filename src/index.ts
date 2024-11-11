@@ -12,13 +12,10 @@ dotenv.config();
 const app: Express = express();
 const port = process.env.PORT;
 
-// ANNOTATIONS
-
+// ROUTE DOCUMENTATION GENERATION
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerOutput));
 
-// END_OF_ANNOTATIONS
-
-// routes for path routing
+// routes related to routing/buildings
 app.use("/api/routing", routingRoutes);
 
 // close exit app when app is interrupted

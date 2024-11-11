@@ -2,8 +2,8 @@
   "openapi": "3.0.0",
   "info": {
     "version": "v1.0.0",
-    "title": "Swagger Demo Project",
-    "description": "Implementation of Swagger with TypeScript"
+    "title": "GopherTunnels Backend Documentation",
+    "description": "Route documentation for GopherTunnels Backend"
   },
   "servers": [
     {
@@ -12,9 +12,29 @@
     }
   ],
   "paths": {
-    "/route": {
+    "/api/routing/route": {
       "get": {
-        "description": "",
+        "description": "Returns a route plan between a starting location and destination. Examples of input parameters include \"Ford Hall\", \"Tate Hall\", \"Mondale Hall\"",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Starting location to route from"
+          },
+          {
+            "in": "query",
+            "name": "destination",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Ending location to route to"
+          }
+        ],
         "responses": {
           "default": {
             "description": ""
@@ -22,9 +42,20 @@
         }
       }
     },
-    "/popular": {
+    "/api/routing/popular": {
       "get": {
-        "description": "",
+        "description": "Finds the top 5 most popular destinations from a single start location",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Name of start location"
+          }
+        ],
         "responses": {
           "default": {
             "description": ""
@@ -32,9 +63,20 @@
         }
       }
     },
-    "/search": {
+    "/api/routing/search": {
       "get": {
-        "description": "",
+        "description": "Provide search bar functionality for the frontend",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "input",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Input parameter from search bar"
+          }
+        ],
         "responses": {
           "default": {
             "description": ""
