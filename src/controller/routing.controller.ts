@@ -80,7 +80,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
 
     // processed path that is returned
     let path
-    const route: { name: string, location: { latitude: string, longitude: string }}[] = []
+    let route: { name: string, location: { latitude: string, longitude: string }}[] = []
 
     // processes intermediary and destination nodes
     for (let record of records) {
@@ -110,7 +110,34 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
           }
         )
       }
-    }    
+    } 
+       
+    // Create or update the ROUTED_TO relationship with visits property
+    try {
+      let result = await session.executeWrite(async (tx: ManagedTransaction) => {
+        return await tx.run(
+          `
+          MATCH (startNode:building {name: $start}), (endNode:building {name: $destination})
+          MERGE (startNode)-[r:ROUTED_TO]->(endNode)
+          ON CREATE SET r.visits = 1
+          ON MATCH SET r.visits = r.visits + 1
+          RETURN r.visits AS visits
+          `,
+          { start, destination }
+        );
+      });
+    
+      // Retrieve and log the visits count (NOT NEEDED, FOR VERIFICATION)
+      if (result.records.length > 0) {
+        const visits = result.records[0].get('visits');
+        console.log(`ROUTED_TO connection exists with visits: ${visits}`);
+      } else {
+        console.log("Failed to retrieve the visits count.");
+      }
+    } catch (error) {
+      console.error("Error creating or updating ROUTED_TO relationship:", error);
+    }
+    
     res.json(route);
   })()
 }
@@ -148,7 +175,7 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
 export function searchBar(req: Request, res: Response) {
   (async () => {
 
-    let name = req.query.name?.toString().toLowerCase();
+    let name = req.query.input?.toString().toLowerCase();
     const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(name)).slice(0, 5)
 
     res.json(matches)
