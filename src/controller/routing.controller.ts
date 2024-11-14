@@ -1,5 +1,5 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
-import { Driver, ManagedTransaction, routing, Session, TransactionPromise } from 'neo4j-driver-core';
+import { Request, Response, NextFunction } from 'express';
+import { ManagedTransaction, Session } from 'neo4j-driver-core';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -72,7 +72,8 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       async (tx: ManagedTransaction) => {
         return await tx.run(
             `MATCH p=shortestPath(
-            (startNode:building {name: \"${start}\"})-[*]-(endNode:building {name: \"${destination}\"}))
+            (start:building {name: \"${start}\"})-[:CONNECTED_TO]-(destination:building {name: \"${destination}\"}))
+            WHERE start.campus == destination.campus
             RETURN p`
         )
       }
