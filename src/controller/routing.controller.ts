@@ -16,7 +16,7 @@ export let BUILDINGS: any[] = [];
   const USER = process.env.NEO4J_USERNAME
   const PASSWORD = process.env.NEO4J_PASSWORD
 
-  const info: { start: any, destinations: any[] }[] = []
+  // const info: { start: any, destinations: any[] }[] = []
 
   // debugging and connecting
 
@@ -176,8 +176,8 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
 export function searchBar(req: Request, res: Response) {
   (async () => {
 
-    let name = req.query.input?.toString().toLowerCase();
-    const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(name)).slice(0, 5)
+    let input = req.query.input?.toString().toLowerCase();
+    const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
 
     res.json(matches)
   })()
