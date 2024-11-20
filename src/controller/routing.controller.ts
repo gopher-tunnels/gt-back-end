@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ManagedTransaction, Session } from 'neo4j-driver-core';
 import dotenv from 'dotenv';
+import { findDir } from './utils/directions'
 
 dotenv.config();
 
@@ -73,7 +74,6 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
         return await tx.run(
             `MATCH p=shortestPath(
             (start:building {name: \"${start}\"})-[:CONNECTED_TO]-(destination:building {name: \"${destination}\"}))
-            WHERE start.campus == destination.campus
             RETURN p`
         )
       }
@@ -81,7 +81,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
 
     // processed path that is returned
     let path
-    let route: { name: string, location: { latitude: string, longitude: string }}[] = []
+    let route: { name: string, location: { latitude: string, longitude: string }, direction: string}[] = []
 
     // processes intermediary and destination nodes
     for (let record of records) {
@@ -94,22 +94,39 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
           location: {
             latitude: start_location.properties.latitude,
             longitude: start_location.properties.longitude
-          }
+          },
+          direction: ""
         }
       )
 
-      for (let segment of path) {
+      for (let i = 0; i < path.length - 1; i++) {
+        let segment = path[i]
+        let nextSegment = path[i + 1]
+        let nodePrev = segment.start
         let node = segment.end
-
+        let nodeNext = nextSegment.end
         route.push(
           {
             name: node.properties.name,
             location: {
               latitude: node.properties.latitude,
               longitude: node.properties.longitude
-            }
+            },
+            direction: findDir(nodePrev, node, nodeNext)
           }
         )
+        if (i == path.length - 1) {
+          route.push(
+            {
+              name: nodeNext.properties.name,
+              location: {
+                latitude: nodeNext.properties.latitude,
+                longitude: nodeNext.properties.longitude
+              },
+              direction: ""
+            }
+          )
+        }
       }
     } 
        
