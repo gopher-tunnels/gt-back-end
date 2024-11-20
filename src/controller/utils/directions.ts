@@ -1,29 +1,35 @@
-export function findDirs(data: { name: string, location: { latitude: string, longitude: string }}[]): string[] {
-    let dirs: string[] = []
-    for (let i = 0; i < data.length - 2; i++) {
-        const theta1 = calcAngle(data[i].location, data[i + 1].location);
-        const theta2 = calcAngle(data[i + 1].location, data[i + 2].location);
-        const dif = theta2 - theta1;
-        let name = data[i].name
-        if (dif > 0) {
-            if (dif < 60) {
-                dirs.push('slight left at ' + name)
-            } else if (dif < 110) {
-                dirs.push('left at' + name)
-            } else {
-                dirs.push('sharp left at' + name)
-            }
-        } else if (dif < 0) {
-            if (dif > -60) {
-                dirs.push('slight right at ' + name) 
-            } else if (dif > -110) {
-                dirs.push('right at ' + name)
-            } else {
-                dirs.push('sharp right at ' + name)
-            }
+type Point = {
+    name: string,
+    location: {
+        latitude: string,
+        longitude: string
+    },
+    direction: string
+}
+
+export function findDir(nodeOne: Point, nodeTwo: Point, nodeThree: Point): string {
+    let dir: string = ""
+    const theta1 = calcAngle(nodeOne.location, nodeTwo.location);
+    const theta2 = calcAngle(nodeTwo.location, nodeThree.location);
+    const dif = theta2 - theta1;
+    if (dif > 0) {
+        if (dif < 60) {
+            return "slight left"
+        } else if (dif < 110) {
+            return "left"
+        } else {
+            return "sharp left"
+        }
+    } else if (dif < 0) {
+        if (dif > -60) {
+            return "slight right"
+        } else if (dif > -110) {
+            return "right"
+        } else {
+            return "sharp return"
         }
     }
-    return dirs
+    return dir
 }
 
 function calcAngle(location1: { latitude: string, longitude: string }, location2: { latitude: string, longitude: string }): number {
