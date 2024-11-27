@@ -72,8 +72,8 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     let { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
         return await tx.run(
-            `MATCH p=shortestPath(
-            (start:building {name: \"${start}\"})-[:CONNECTED_TO]-(destination:building {name: \"${destination}\"}))
+            `MATCH p = SHORTEST 1 (start:building {name: \"${start}\"})-[:CONNECTED_TO]-+(destination:building {name: \"${destination}\"})
+            WHERE start.campus = destination.campus
             RETURN p`
         )
       }
