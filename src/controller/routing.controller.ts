@@ -83,56 +83,53 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       }
     )
 
-    // processed path that is returned
-    let path
-    let route: { name: string, location: { latitude: string, longitude: string }, direction: string}[] = []
+    let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
-    // processes intermediary and destination nodes
     for (let record of records) {
-      path = record.get('p').segments
-      const start_location = path[0].start
+      const path = record.get('p').segments;
+      if (path.length === 0) continue; // if no segments, skip
 
-      route.push(
-        {
-          name: start_location.properties.name,
-          location: {
-            latitude: start_location.properties.latitude,
-            longitude: start_location.properties.longitude
-          },
-          direction: ""
-        }
-      )
-
-      for (let i = 0; i < path.length - 1; i++) {
-        let segment = path[i]
-        let nextSegment = path[i + 1]
-        let nodePrev = segment.start
-        let node = segment.end
-        let nodeNext = nextSegment.end
-        route.push(
-          {
+      // processing each segment in the path
+      for (let i = 0; i < path.length; i++) {
+        const segment = path[i];
+        const nodePrev = segment.start;
+        const node = segment.end;
+        const nodeNext = i < path.length - 1 ? path[i + 1].end : null;
+        // if start node, default to "straight"
+        if (i == 0) {
+          route.push({
+            name: nodePrev.properties.name,
+            location: {
+              latitude: nodePrev.properties.latitude,
+              longitude: nodePrev.properties.longitude,
+            },
+            direction: "straight"
+          });
+        } else {
+          // add the current node
+          route.push({
             name: node.properties.name,
             location: {
               latitude: node.properties.latitude,
-              longitude: node.properties.longitude
+              longitude: node.properties.longitude,
             },
-            direction: findDir(nodePrev, node, nodeNext)
-          }
-        )
-        if (i == path.length - 1) {
-          route.push(
-            {
-              name: nodeNext.properties.name,
-              location: {
+            direction: nodeNext ? findDir(nodePrev, node, nodeNext) : ""
+          });
+        }
+
+        // if this is the last segment, add the final node with no direction
+        if (i === path.length - 1 && nodeNext) {
+          route.push({
+            name: nodeNext.properties.name,
+            location: {
                 latitude: nodeNext.properties.latitude,
-                longitude: nodeNext.properties.longitude
-              },
-              direction: ""
-            }
-          )
+                longitude: nodeNext.properties.longitude,
+            },
+            direction: ""
+          });
         }
       }
-    } 
+    }
        
     // Create or update the ROUTED_TO relationship with visits property
     try {
