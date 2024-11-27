@@ -16,7 +16,7 @@ export function findDir(nodeOne: Point, nodeTwo: Point, nodeThree: Point): strin
         dif += 360
     }
     console.log(theta1, theta2)
-    if (-15 < dif && dif < 15) {
+    if (-10 < dif && dif < 10) {
         return "straight"
     }
     if (dif > 0) {
