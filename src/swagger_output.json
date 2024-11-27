@@ -83,6 +83,16 @@
           }
         }
       }
+    },
+    "/api/routing/buildings": {
+      "get": {
+        "description": "Retrieve all buildings and relevant information like name, location (lat/long), and opening and closing hours",
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
     }
   },
   "components": {

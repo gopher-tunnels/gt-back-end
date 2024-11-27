@@ -38,8 +38,12 @@ export let BUILDINGS: any[] = [];
 
 })();
 
-// establish a valid session
+export function getBuildings(req: Request, res: Response, next: NextFunction) {
+  res.json({ "buildings": BUILDINGS })
+}
 
+
+// establish a valid session
 export function buildingRouting(req: Request, res: Response, next: NextFunction) {
   (async () => {
     // instead of going forwards, go backwards to find user location, getting to closest building
