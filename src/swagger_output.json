@@ -1,0 +1,106 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "version": "v1.0.0",
+    "title": "GopherTunnels Backend Documentation",
+    "description": "Route documentation for GopherTunnels Backend"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": ""
+    }
+  ],
+  "paths": {
+    "/api/routing/route": {
+      "get": {
+        "description": "Returns a route plan between a starting location and destination. Examples of input parameters include \"Ford Hall\", \"Tate Hall\", \"Mondale Hall\"",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Starting location to route from"
+          },
+          {
+            "in": "query",
+            "name": "destination",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Ending location to route to"
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/routing/popular": {
+      "get": {
+        "description": "Finds the top 5 most popular destinations from a single start location",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Name of start location"
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/routing/search": {
+      "get": {
+        "description": "Provide search bar functionality for the frontend",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "input",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Input parameter from search bar"
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/routing/buildings": {
+      "get": {
+        "description": "Retrieve all buildings and relevant information like name, location (lat/long), and opening and closing hours",
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}
