@@ -40,7 +40,30 @@ export let BUILDINGS: any[] = [];
 })();
 
 export function getBuildings(req: Request, res: Response, next: NextFunction) {
-  res.json({ "buildings": BUILDINGS })
+  try{
+    if (req.query.Select === "All") {
+      res.json(JSON.stringify({ "buildings": BUILDINGS }))
+    }
+    else if (req.query.Select === "Some") {
+      const idList = (req.query.IDlist as string)?.split(",") || [];
+      if (!idList || !Array.isArray(idList)) {
+        throw new Error("IDlist must be provided and must be an array");
+      }
+      res.json(JSON.stringify({ "buildings": BUILDINGS.filter(building => idList.includes(building.id)) }))
+    }
+    else if (req.query.Select === "No") {
+      res.json(JSON.stringify({ "buildings": [] }))
+    }
+    else {
+      const error: Error = new Error("The Select parameter must be one of 'All', 'Some', or 'No'.");
+      next(error);
+    }
+  }
+  catch (err: any) {
+    console.log("Query issue")
+    next(err)
+  }
+  
 }
 
 
