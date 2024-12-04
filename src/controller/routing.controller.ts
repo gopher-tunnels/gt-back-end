@@ -52,8 +52,8 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     // const MAPTOKEN = process.env.MAPTOKEN
     // const start: {longitude: Number, latitude: Number} | any = req.query.start
     // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
-    const start = req.query.start
-    const destination = req.query.destination
+    const start = String(req.query.start).toLowerCase()
+    const destination = String(req.query.destination).toLowerCase()
 
     // try {
     //   const query = axios.get(
@@ -88,9 +88,21 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     let route: { name: string, location: { latitude: string, longitude: string }, direction: string}[] = []
 
     // processes intermediary and destination nodes
-    for (let record of records) {
-      path = record.get('p').segments
-      const start_location = path[0].start
+    path = records[0].get('p').segments
+
+    route.push(
+      {
+        name: path[0].start.properties.name,
+        location: {
+          latitude: path[0].start.properties.latitude,
+          longitude: path[0].start.properties.longitude
+        },
+        direction: ""
+      }
+    )
+
+    for (let segment of path) {
+      const start_location = segment.end
 
       route.push(
         {
@@ -116,7 +128,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
               latitude: node.properties.latitude,
               longitude: node.properties.longitude
             },
-            direction: findDir(nodePrev, node, nodeNext)
+            direction: findDir(nodePrev.properties, node.properties, nodeNext.properties)
           }
         )
         if (i == path.length - 1) {

@@ -1,17 +1,22 @@
 type Point = {
     name: string,
-    location: {
-        latitude: string,
-        longitude: string
-    },
+    // location: {
+    latitude: string,
+    longitude: string
+    // },
     direction: string
 }
 
 export function findDir(nodeOne: Point, nodeTwo: Point, nodeThree: Point): string {
-    let dir: string = ""
-    const theta1 = calcAngle(nodeOne.location, nodeTwo.location);
-    const theta2 = calcAngle(nodeTwo.location, nodeThree.location);
+    let dir: string = "keep straight"
+    // const theta1 = calcAngle(nodeOne.location, nodeTwo.location);
+    const theta1 = calcAngle({latitude: nodeOne.latitude, longitude: nodeOne.longitude}, {latitude: nodeTwo.latitude, longitude: nodeTwo.longitude});
+
+    // const theta2 = calcAngle(nodeTwo.location, nodeThree.location);
+    const theta2 = calcAngle({latitude: nodeTwo.latitude, longitude: nodeTwo.longitude}, {latitude: nodeThree.latitude, longitude: nodeThree.longitude});
+
     const dif = theta2 - theta1;
+
     if (dif > 0) {
         if (dif < 60) {
             return "slight left"
@@ -26,7 +31,7 @@ export function findDir(nodeOne: Point, nodeTwo: Point, nodeThree: Point): strin
         } else if (dif > -110) {
             return "right"
         } else {
-            return "sharp return"
+            return "sharp right"
         }
     }
     return dir
