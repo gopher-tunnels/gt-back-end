@@ -1,32 +1,34 @@
 type Point = {
-    properties: {
-        name: string,
-        latitude: string,
-        longitude: string
-    }
-};
+    name: string,
+    // location: {
+    latitude: string,
+    longitude: string
+    // },
+    direction: string
+}
 
 export function findDir(nodeOne: Point, nodeTwo: Point, nodeThree: Point): string {
-    const theta1 = calcAngle(nodeOne.properties, nodeTwo.properties);
-    const theta2 = calcAngle(nodeTwo.properties, nodeThree.properties);
-    let dif = theta2 - theta1;
-    if (dif > 180) {
-        dif -= 360
-    } else if (dif < -180) {
-        dif += 360
-    }
-    console.log(theta1, theta2)
-    if (-10 < dif && dif < 10) {
-        return "straight"
-    }
+    let dir: string = "keep straight"
+    // const theta1 = calcAngle(nodeOne.location, nodeTwo.location);
+    const theta1 = calcAngle({latitude: nodeOne.latitude, longitude: nodeOne.longitude}, {latitude: nodeTwo.latitude, longitude: nodeTwo.longitude});
+
+    // const theta2 = calcAngle(nodeTwo.location, nodeThree.location);
+    const theta2 = calcAngle({latitude: nodeTwo.latitude, longitude: nodeTwo.longitude}, {latitude: nodeThree.latitude, longitude: nodeThree.longitude});
+
+    const dif = theta2 - theta1;
+
     if (dif > 0) {
         if (dif < 60) return "slight left";
         if (dif < 110) return "left";
         return "sharp left";
     } else if (dif < 0) {
-        if (dif > -60) return "slight right";
-        if (dif > -110) return "right";
-        return "sharp right";
+        if (dif > -60) {
+            return "slight right"
+        } else if (dif > -110) {
+            return "right"
+        } else {
+            return "sharp right"
+        }
     }
 
     return "straight"; // Optional: Handle cases where `dif === 0`
