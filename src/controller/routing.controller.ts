@@ -83,9 +83,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       }
     )
 
-    // processed path that is returned
-    let path
-    let route: { name: string, location: { latitude: string, longitude: string }, direction: string}[] = []
+    let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
     // processes intermediary and destination nodes
     path = records[0].get('p').segments
@@ -123,10 +121,11 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
         let nodeNext = nextSegment.end
         route.push(
           {
+
             name: node.properties.name,
             location: {
               latitude: node.properties.latitude,
-              longitude: node.properties.longitude
+              longitude: node.properties.longitude,
             },
             direction: findDir(nodePrev.properties, node.properties, nodeNext.properties)
           }
@@ -137,14 +136,13 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
               name: nodeNext.properties.name,
               location: {
                 latitude: nodeNext.properties.latitude,
-                longitude: nodeNext.properties.longitude
-              },
-              direction: ""
-            }
-          )
+                longitude: nodeNext.properties.longitude,
+            },
+            direction: ""
+          });
         }
       }
-    } 
+    }
        
     // Create or update the ROUTED_TO relationship with visits property
     try {
