@@ -109,7 +109,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
     // processes intermediary and destination nodes
-    path = records[0].get('p').segments
+    let path = records[0].get('p').segments
 
     route.push(
       {
@@ -239,7 +239,7 @@ export function geoPositionRoute(req: Request, res: Response, next: NextFunction
   } else {
     console.log("Nearest building:", nearestBuilding.name);
   }
-  return nearestBuilding
+  res.json(nearestBuilding);
 }
 
 // gets top 5 popular routes
