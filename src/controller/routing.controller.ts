@@ -1,6 +1,7 @@
-import express, { Express, Request, Response, NextFunction } from 'express';
-import { Driver, ManagedTransaction, routing, Session, TransactionPromise } from 'neo4j-driver-core';
+import { Request, Response, NextFunction } from 'express';
+import { ManagedTransaction, Session } from 'neo4j-driver-core';
 import dotenv from 'dotenv';
+import { findDir } from './utils/directions'
 
 dotenv.config();
 
@@ -16,7 +17,7 @@ export let BUILDINGS: any[] = [];
   const USER = process.env.NEO4J_USERNAME
   const PASSWORD = process.env.NEO4J_PASSWORD
 
-  const info: { start: any, destinations: any[] }[] = []
+  // const info: { start: any, destinations: any[] }[] = []
 
   // debugging and connecting
 
@@ -38,8 +39,35 @@ export let BUILDINGS: any[] = [];
 
 })();
 
-// establish a valid session
+export function getBuildings(req: Request, res: Response, next: NextFunction) {
+  try{
+    if (req.query.Select === "All") {
+      res.json(JSON.stringify({ "buildings": BUILDINGS }))
+    }
+    else if (req.query.Select === "Some") {
+      const idList = (req.query.IDlist as string)?.split(",") || [];
+      if (!idList || !Array.isArray(idList)) {
+        throw new Error("IDlist must be provided and must be an array");
+      }
+      res.json(JSON.stringify({ "buildings": BUILDINGS.filter(building => idList.includes(building.id)) }))
+    }
+    else if (req.query.Select === "No") {
+      res.json(JSON.stringify({ "buildings": [] }))
+    }
+    else {
+      const error: Error = new Error("The Select parameter must be one of 'All', 'Some', or 'No'.");
+      next(error);
+    }
+  }
+  catch (err: any) {
+    console.log("Query issue")
+    next(err)
+  }
+  
+}
 
+
+// establish a valid session
 export function buildingRouting(req: Request, res: Response, next: NextFunction) {
   (async () => {
     // instead of going forwards, go backwards to find user location, getting to closest building
@@ -47,8 +75,8 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     // const MAPTOKEN = process.env.MAPTOKEN
     // const start: {longitude: Number, latitude: Number} | any = req.query.start
     // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
-    const start = req.query.start
-    const destination = req.query.destination
+    const start = String(req.query.start).toLowerCase()
+    const destination = String(req.query.destination).toLowerCase()
 
     // try {
     //   const query = axios.get(
@@ -71,21 +99,31 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     let { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
         return await tx.run(
-            `MATCH p=shortestPath(
-            (startNode:building {name: \"${start}\"})-[*]-(endNode:building {name: \"${destination}\"}))
+            `MATCH p = SHORTEST 1 (start:building {name: \"${start}\"})-[:CONNECTED_TO]-+(destination:building {name: \"${destination}\"})
+            WHERE start.campus = destination.campus
             RETURN p`
         )
       }
     )
 
-    // processed path that is returned
-    let path
-    let route: { name: string, location: { latitude: string, longitude: string }}[] = []
+    let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
     // processes intermediary and destination nodes
-    for (let record of records) {
-      path = record.get('p').segments
-      const start_location = path[0].start
+    path = records[0].get('p').segments
+
+    route.push(
+      {
+        name: path[0].start.properties.name,
+        location: {
+          latitude: path[0].start.properties.latitude,
+          longitude: path[0].start.properties.longitude
+        },
+        direction: ""
+      }
+    )
+
+    for (let segment of path) {
+      const start_location = segment.end
 
       route.push(
         {
@@ -93,24 +131,41 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
           location: {
             latitude: start_location.properties.latitude,
             longitude: start_location.properties.longitude
-          }
+          },
+          direction: ""
         }
       )
 
-      for (let segment of path) {
+      for (let i = 0; i < path.length - 1; i++) {
+        let segment = path[i]
+        let nextSegment = path[i + 1]
+        let nodePrev = segment.start
         let node = segment.end
-
+        let nodeNext = nextSegment.end
         route.push(
           {
+
             name: node.properties.name,
             location: {
               latitude: node.properties.latitude,
-              longitude: node.properties.longitude
-            }
+              longitude: node.properties.longitude,
+            },
+            direction: findDir(nodePrev.properties, node.properties, nodeNext.properties)
           }
         )
+        if (i == path.length - 1) {
+          route.push(
+            {
+              name: nodeNext.properties.name,
+              location: {
+                latitude: nodeNext.properties.latitude,
+                longitude: nodeNext.properties.longitude,
+            },
+            direction: ""
+          });
+        }
       }
-    } 
+    }
        
     // Create or update the ROUTED_TO relationship with visits property
     try {
@@ -220,8 +275,8 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
 export function searchBar(req: Request, res: Response) {
   (async () => {
 
-    let name = req.query.input?.toString().toLowerCase();
-    const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(name)).slice(0, 5)
+    let input = req.query.input?.toString().toLowerCase();
+    const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
 
     res.json(matches)
   })()

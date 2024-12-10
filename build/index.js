@@ -1,71 +1,36 @@
 "use strict";
-
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const routing_route_1 = __importDefault(require("./routes/routing.route"));
+// import axios from "axios";
+const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
+const swagger_output_json_1 = __importDefault(require("./swagger_output.json"));
 dotenv_1.default.config();
+// starting the app
 const app = (0, express_1.default)();
 const port = process.env.PORT;
-const neo4j = require('neo4j-driver');
-
-(async () => {
-  require('dotenv').config({
-    path: 'Neo4j-b04d4356-Created-2024-03-12.txt',
-    debug: true  // to raise file/parsing errors
-  })
-
-  const URI = process.env.NEO4J_URI
-  const USER = process.env.NEO4J_USERNAME
-  const PASSWORD = process.env.NEO4J_PASSWORD
-
-  let driver
-
-  try {
-    driver = neo4j.driver(URI,  neo4j.auth.basic(USER, PASSWORD))
-    const serverInfo = await driver.getServerInfo()
-    console.log('Connection estabilished')
-    console.log(serverInfo)
-  } catch(err) {
-    console.log(`Connection error\n${err}\nCause: ${err.cause}`)
-    await driver.close()
-    return
-  }
-
-  let session = driver.session({ database: 'neo4j' });
-
-  let { records, summary } = await session.executeRead(async tx => {
-    return await tx.run(`
-      MATCH (p:MAN)
-      RETURN p.name, p.age
-      `
-    )
-  })
-
-//   console.log(records);                                  
-
-  for (let record in records) {
-    // console.log(record.values())
-    console.log(record)
-//     let cat1 = record.get("p.name");
-//     let cat2 = record.indexOf("p.age");
-
-//     let name = record._fieldLookup[cat1];
-//     let age = record._fieldLookup[cat2]
-
-//     console.log(`Name: ${record._fields[name]}, Age: ${record._fields[age]}`);
-  }
-
-  console.log(records)
-
-  await driver.close()
-})();
-
-app.get('/', (req, res) => {
-    res.send('Gopher Tunnels back-end');
-});
+// ROUTE DOCUMENTATION GENERATION
+app.use('/api-docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_output_json_1.default));
+// routes related to routing/buildings
+app.use("/api/routing", routing_route_1.default);
+// close exit app when app is interrupted
+process.on("SIGINT", () => __awaiter(void 0, void 0, void 0, function* () {
+    process.exit(1);
+}));
+// for testing
 app.listen(port, () => {
     console.log(`App is listening on ${port}`);
 });

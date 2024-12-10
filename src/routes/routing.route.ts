@@ -1,5 +1,5 @@
 import express from 'express';
-import { buildingRouting, popularRoutes, searchBar, geoPositionRoute } from '../controller/routing.controller';
+import { buildingRouting, popularRoutes, searchBar, geoPositionRoute, getBuildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
@@ -39,7 +39,13 @@ router.get('/geoposition', geoPositionRoute);
 
 router.get('/search', searchBar);
 
-// TODO: needs to be implemented to support popularRoutes
-// router.post('/setroute')
+/** 
+ * @swagger
+ * /buildings:
+ *   get:
+ *     summary: some summary
+ *     description: some description
+*/
+router.get('/buildings', getBuildings);
 
 export default router;
