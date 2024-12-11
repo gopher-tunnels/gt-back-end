@@ -109,7 +109,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
     // processes intermediary and destination nodes
-    let path = records[0].get('p').segments
+    const path = records[0].get('p').segments
 
     route.push(
       {
@@ -189,8 +189,8 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
   })()
 }
 
-export function geoPositionRoute(req: Request, res: Response, next: NextFunction) {
-  let request = {
+export function userLocationRoute(req: Request, res: Response, next: NextFunction) {
+  const request = {
     lat: parseFloat(req.query.latitude as string),
     long: parseFloat(req.query.longitude as string),
     destBuildingName: req.query.destination
@@ -283,7 +283,7 @@ export function searchBar(req: Request, res: Response) {
 }
 
 // returns Euclidien distance between two geopositions 
-export function getDistance(lat1: number, long1: number, lat2: number, long2: number){
+function getDistance(lat1: number, long1: number, lat2: number, long2: number){
   return Math.sqrt(Math.pow((lat2-lat1), 2) + Math.pow((long2-long1), 2));
 }
 

@@ -84,7 +84,7 @@
         }
       }
     },
-    "/api/routing/geoposition": {
+    "/api/routing/userlocation": {
       "get": {
         "description": "Finds the route for a geoposition",
         "parameters": [
