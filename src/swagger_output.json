@@ -84,6 +84,45 @@
         }
       }
     },
+    "/api/routing/userlocation": {
+      "get": {
+        "description": "Finds the route for a geoposition",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "latitude",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "latitude of the start position"
+          },
+          {
+            "in": "query",
+            "name": "longitude",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "longitude of the start position"
+          },
+          {
+            "in": "query",
+            "name": "destination",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Ending location to route to"
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/routing/buildings": {
       "get": {
         "description": "Retrieve buildings and relevant information like name, location (lat/long), and opening and closing hours, handle requests asking for all, some, and no data nodes.",
