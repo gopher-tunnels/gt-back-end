@@ -11,6 +11,7 @@ export let session: Session;
 
 export let BUILDINGS: any[] = [];
 
+// TODO: What does this function do? What does it return? What do the parameters/variables mean? Add documentation
 // connecting to database and load static data
 (async () => {
   const URI = process.env.NEO4J_URI
@@ -68,6 +69,8 @@ export function getBuildings(req: Request, res: Response, next: NextFunction) {
 
 
 // establish a valid session
+
+// TODO: What does this function do? What does it return? What do the parameters mean? Add documentation
 export function buildingRouting(req: Request, res: Response, next: NextFunction) {
   (async () => {
     // instead of going forwards, go backwards to find user location, getting to closest building
@@ -96,7 +99,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
     // }
 
     // shortest route example
-    let { records, summary } = await session.executeRead(
+    const { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
         return await tx.run(
             `MATCH p = SHORTEST 1 (start:building {name: \"${start}\"})-[:CONNECTED_TO]-+(destination:building {name: \"${destination}\"})
@@ -106,7 +109,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       }
     )
 
-    let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
+    const route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
     // processes intermediary and destination nodes
     const path = records[0].get('p').segments
@@ -122,7 +125,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       }
     )
 
-    for (let segment of path) {
+    for (const segment of path) {
       const start_location = segment.end
 
       route.push(
@@ -137,11 +140,11 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
       )
 
       for (let i = 0; i < path.length - 1; i++) {
-        let segment = path[i]
-        let nextSegment = path[i + 1]
-        let nodePrev = segment.start
-        let node = segment.end
-        let nodeNext = nextSegment.end
+        const segment = path[i]
+        const nextSegment = path[i + 1]
+        const nodePrev = segment.start
+        const node = segment.end
+        const nodeNext = nextSegment.end
         route.push(
           {
 
@@ -169,7 +172,7 @@ export function buildingRouting(req: Request, res: Response, next: NextFunction)
        
     // Create or update the ROUTED_TO relationship with visits property
     try {
-      let result = await session.executeWrite(async (tx: ManagedTransaction) => {
+      const result = await session.executeWrite(async (tx: ManagedTransaction) => {
         return await tx.run(
           `
           MATCH (startNode:building {name: $start}), (endNode:building {name: $destination})
@@ -243,10 +246,11 @@ export function userLocationRoute(req: Request, res: Response, next: NextFunctio
 }
 
 // gets top 5 popular routes
+// TODO: What does this function do? What does it return? What do the parameters mean? Add documentation, be more specific
 export function popularRoutes(req: Request, res: Response, next: NextFunction) {
   (async () => {
 
-    let { records, summary } = await session.executeRead(
+    const { records, summary } = await session.executeRead(
       async (tx: ManagedTransaction) => {
         return await tx.run(`
           MATCH (a)-[b:ROUTED_TO]->(c) 
@@ -271,11 +275,12 @@ export function popularRoutes(req: Request, res: Response, next: NextFunction) {
   })()
 }
 
+// TODO: What does this function do? What does it return? What do the parameters mean? Add documentation
 // could be improved with a fuzzy find or some sorting
 export function searchBar(req: Request, res: Response) {
   (async () => {
 
-    let input = req.query.input?.toString().toLowerCase();
+    const input = req.query.input?.toString().toLowerCase();
     const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
 
     res.json(matches)

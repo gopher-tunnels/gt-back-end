@@ -1,5 +1,6 @@
 export function findDirs(data: { name: string, location: { latitude: string, longitude: string }}[]): string[] {
-    let dirs: string[] = []
+   // TODO: What does this function do? What does it return? What do the parameters mean? Add documentation
+    const dirs: string[] = []
     for (let i = 0; i < data.length - 2; i++) {
         const theta1 = calcAngle(data[i].location, data[i + 1].location);
         const theta2 = calcAngle(data[i + 1].location, data[i + 2].location);
@@ -27,6 +28,7 @@ export function findDirs(data: { name: string, location: { latitude: string, lon
 }
 
 function calcAngle(location1: { latitude: string, longitude: string }, location2: { latitude: string, longitude: string }): number {
+    // TODO: What does this function do? What does it return? What do the parameters mean? Add documentation
     const [p1y, p1x] = [Number(location1.latitude), Number(location1.longitude)];
     const [p2y, p2x] = [Number(location2.latitude), Number(location2.longitude)];
     const theta = Math.atan2((p2y - p1y), (p2x - p1x));
