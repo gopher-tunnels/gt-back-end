@@ -1,5 +1,5 @@
 import express from 'express';
-import { buildingRouting, popularRoutes, searchBar, userLocationRoute, getBuildings } from '../controller/routing.controller';
+import { searchBar, userLocationRoute, getBuildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ const router = express.Router();
  *     summary: returns a route from a start location to a destination
  *     description: some description
 */
-router.get('/route', buildingRouting);
+// router.get('/route', buildingRouting);
 /** 
  * @swagger
  * /popular:
@@ -18,7 +18,7 @@ router.get('/route', buildingRouting);
  *     summary: some summary
  *     description: some description
 */
-router.get('/popular', popularRoutes);
+// router.get('/popular', popularRoutes);
 
 /** 
  * @swagger

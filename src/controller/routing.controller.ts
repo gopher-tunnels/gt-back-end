@@ -1,15 +1,46 @@
 import { Request, Response, NextFunction } from 'express';
-import { ManagedTransaction, Session } from 'neo4j-driver-core';
+// import { ManagedTransaction, Session } from 'neo4j-driver-core'; DB FIX
 import dotenv from 'dotenv';
 import { findDir } from './utils/directions'
 
 dotenv.config();
 
-const neo4j = require('neo4j-driver');
+// const neo4j = require('neo4j-driver'); DB FIX
 export let driver: any;
-export let session: Session;
+// export let session: Session; DB FIX
 
-export let BUILDINGS: any[] = [];
+export let BUILDINGS: any[] = [
+  {
+    "name": "Wilson Library",
+    "campus": "West",
+    "latitude": "44.9709",
+    "longitude": "-93.243",
+  },
+  {
+    "name": "Walter Library",
+    "campus": "East",
+    "latitude": "44.9709",
+    "longitude": "-93.243",
+  },
+  {
+    "name": "Tate Hall",
+    "campus": "East",
+    "latitude": "22420.9709",
+    "longitude": "-93.243",
+  },
+  {
+    "name": "Foo Hall",
+    "campus": "East",
+    "latitude": "44.9709",
+    "longitude": "-93.243",
+  },
+  {
+    "name": "The Bridge",
+    "campus": "East",
+    "latitude": "44.9709",
+    "longitude": "-93.243",
+  },
+];
 
 // connecting to database and load static data
 (async () => {
@@ -21,21 +52,22 @@ export let BUILDINGS: any[] = [];
 
   // debugging and connecting
 
-  try {
-    driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
-    const serverInfo = await driver.getServerInfo()
-    console.log('Connection estabilished')
-    console.log(serverInfo)
-    session = driver.session({ database: 'neo4j' });
+  // try {
+  //   driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
+  //   const serverInfo = await driver.getServerInfo()
+  //   console.log('Connection estabilished')
+  //   console.log(serverInfo)
+  //   session = driver.session({ database: 'neo4j' });
 
-    // might be a stupid long-term solution, but works for now
-    const { records, summary } = await session.executeRead(
-      async (tx: ManagedTransaction) => await tx.run(`MATCH (b:building) RETURN b`) // might just take name?
-    )
-    BUILDINGS = records.map(record => record.get("b").properties).filter(props => props.name != undefined);
-  } catch(err: any) {
-    console.log(`Connection error\n${err}\nCause: ${err.cause}`)
-  }
+  //   // might be a stupid long-term solution, but works for now
+  //   const { records, summary } = await session.executeRead(
+  //     async (tx: ManagedTransaction) => await tx.run(`MATCH (b:building) RETURN b`) // might just take name?
+  //   )
+
+    // BUILDINGS = records.map(record => record.get("b").properties).filter(props => props.name != undefined);
+  // } catch(err: any) {
+    // console.log(`Connection error\n${err}\nCause: ${err.cause}`)
+  // }
 
 })();
 
@@ -68,126 +100,126 @@ export function getBuildings(req: Request, res: Response, next: NextFunction) {
 
 
 // establish a valid session
-export function buildingRouting(req: Request, res: Response, next: NextFunction) {
-  (async () => {
-    // instead of going forwards, go backwards to find user location, getting to closest building
-    // have a confidece bound of some sort (greedy) 
-    // const MAPTOKEN = process.env.MAPTOKEN
-    // const start: {longitude: Number, latitude: Number} | any = req.query.start
-    // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
-    const start = String(req.query.start).toLowerCase()
-    const destination = String(req.query.destination).toLowerCase()
+// export function buildingRouting(req: Request, res: Response, next: NextFunction) {
+//   (async () => {
+//     // instead of going forwards, go backwards to find user location, getting to closest building
+//     // have a confidece bound of some sort (greedy) 
+//     // const MAPTOKEN = process.env.MAPTOKEN
+//     // const start: {longitude: Number, latitude: Number} | any = req.query.start
+//     // const destination: {longitude: Number, latitude: Number} | any = req.query.destination
+//     const start = String(req.query.start).toLowerCase()
+//     const destination = String(req.query.destination).toLowerCase()
 
-    // try {
-    //   const query = axios.get(
-    //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
-    //         ).then((response) => {
-    //             console.log(response)
-    //             // const json = response.json();
-    //             // const data = json.routes[0];
-    //             // const route = data.geometry.coordinates;
+//     // try {
+//     //   const query = axios.get(
+//     //             `https://api.mapbox.com/directions/v5/mapbox/walking/${start.longitude},${start.latitude};${destination.longitude},${destination.latitude}?steps=true&geometries=geojson&access_token=${MAPTOKEN}`,
+//     //         ).then((response) => {
+//     //             console.log(response)
+//     //             // const json = response.json();
+//     //             // const data = json.routes[0];
+//     //             // const route = data.geometry.coordinates;
 
-    //             // console.log(json.routes);
-    //             // console.log(json.routes[0].legs[0].steps);
-    //             return response
-    //         })
-    // } catch (err: any) {
-    //   console.log("Query issue")
-    // }
+//     //             // console.log(json.routes);
+//     //             // console.log(json.routes[0].legs[0].steps);
+//     //             return response
+//     //         })
+//     // } catch (err: any) {
+//     //   console.log("Query issue")
+//     // }
 
-    // shortest route example
-    let { records, summary } = await session.executeRead(
-      async (tx: ManagedTransaction) => {
-        return await tx.run(
-            `MATCH p = SHORTEST 1 (start:building {name: \"${start}\"})-[:CONNECTED_TO]-+(destination:building {name: \"${destination}\"})
-            WHERE start.campus = destination.campus
-            RETURN p`
-        )
-      }
-    )
+//     // shortest route example
+//     let { records, summary } = await session.executeRead(
+//       async (tx: ManagedTransaction) => {
+//         return await tx.run(
+//             `MATCH p = SHORTEST 1 (start:building {name: \"${start}\"})-[:CONNECTED_TO]-+(destination:building {name: \"${destination}\"})
+//             WHERE start.campus = destination.campus
+//             RETURN p`
+//         )
+//       }
+//     )
 
-    let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
+//     let route: { name: string, location: { latitude: string, longitude: string }, direction: string }[] = [];
 
-    // processes intermediary and destination nodes
-    const path = records[0].get('p').segments
+//     // processes intermediary and destination nodes
+//     const path = records[0].get('p').segments
 
-    route.push(
-      {
-        name: path[0].start.properties.name,
-        location: {
-          latitude: path[0].start.properties.latitude,
-          longitude: path[0].start.properties.longitude
-        },
-        direction: ""
-      }
-    )
+//     route.push(
+//       {
+//         name: path[0].start.properties.name,
+//         location: {
+//           latitude: path[0].start.properties.latitude,
+//           longitude: path[0].start.properties.longitude
+//         },
+//         direction: ""
+//       }
+//     )
 
-    for (let segment of path) {
-      const start_location = segment.end
+//     for (let segment of path) {
+//       const start_location = segment.end
 
-      route.push(
-        {
-          name: start_location.properties.name,
-          location: {
-            latitude: start_location.properties.latitude,
-            longitude: start_location.properties.longitude
-          },
-          direction: ""
-        }
-      )
+//       route.push(
+//         {
+//           name: start_location.properties.name,
+//           location: {
+//             latitude: start_location.properties.latitude,
+//             longitude: start_location.properties.longitude
+//           },
+//           direction: ""
+//         }
+//       )
 
-      for (let i = 0; i < path.length - 1; i++) {
-        let segment = path[i]
-        let nextSegment = path[i + 1]
-        let nodePrev = segment.start
-        let node = segment.end
-        let nodeNext = nextSegment.end
-        route.push(
-          {
+//       for (let i = 0; i < path.length - 1; i++) {
+//         let segment = path[i]
+//         let nextSegment = path[i + 1]
+//         let nodePrev = segment.start
+//         let node = segment.end
+//         let nodeNext = nextSegment.end
+//         route.push(
+//           {
 
-            name: node.properties.name,
-            location: {
-              latitude: node.properties.latitude,
-              longitude: node.properties.longitude,
-            },
-            direction: findDir(nodePrev.properties, node.properties, nodeNext.properties)
-          }
-        )
-        if (i == path.length - 1) {
-          route.push(
-            {
-              name: nodeNext.properties.name,
-              location: {
-                latitude: nodeNext.properties.latitude,
-                longitude: nodeNext.properties.longitude,
-            },
-            direction: ""
-          });
-        }
-      }
-    }
+//             name: node.properties.name,
+//             location: {
+//               latitude: node.properties.latitude,
+//               longitude: node.properties.longitude,
+//             },
+//             direction: findDir(nodePrev.properties, node.properties, nodeNext.properties)
+//           }
+//         )
+//         if (i == path.length - 1) {
+//           route.push(
+//             {
+//               name: nodeNext.properties.name,
+//               location: {
+//                 latitude: nodeNext.properties.latitude,
+//                 longitude: nodeNext.properties.longitude,
+//             },
+//             direction: ""
+//           });
+//         }
+//       }
+//     }
        
-    // Create or update the ROUTED_TO relationship with visits property
-    try {
-      let result = await session.executeWrite(async (tx: ManagedTransaction) => {
-        return await tx.run(
-          `
-          MATCH (startNode:building {name: $start}), (endNode:building {name: $destination})
-          MERGE (startNode)-[r:ROUTED_TO]->(endNode)
-          ON CREATE SET r.visits = 1
-          ON MATCH SET r.visits = r.visits + 1
-          RETURN r.visits AS visits
-          `,
-          { start, destination }
-        );
-      });
-    } catch (error) {
-      console.error("Error creating or updating ROUTED_TO relationship:", error);
-    }
+//     // Create or update the ROUTED_TO relationship with visits property
+//     try {
+//       let result = await session.executeWrite(async (tx: ManagedTransaction) => {
+//         return await tx.run(
+//           `
+//           MATCH (startNode:building {name: $start}), (endNode:building {name: $destination})
+//           MERGE (startNode)-[r:ROUTED_TO]->(endNode)
+//           ON CREATE SET r.visits = 1
+//           ON MATCH SET r.visits = r.visits + 1
+//           RETURN r.visits AS visits
+//           `,
+//           { start, destination }
+//         );
+//       });
+//     } catch (error) {
+//       console.error("Error creating or updating ROUTED_TO relationship:", error);
+//     }
     
-    res.json(route);
-  })()
-}
+//     res.json(route);
+//   })()
+// }
 
 export function userLocationRoute(req: Request, res: Response, next: NextFunction) {
   const request = {
@@ -243,33 +275,33 @@ export function userLocationRoute(req: Request, res: Response, next: NextFunctio
 }
 
 // gets top 5 popular routes
-export function popularRoutes(req: Request, res: Response, next: NextFunction) {
-  (async () => {
+// export function popularRoutes(req: Request, res: Response, next: NextFunction) {
+//   (async () => {
 
-    let { records, summary } = await session.executeRead(
-      async (tx: ManagedTransaction) => {
-        return await tx.run(`
-          MATCH (a)-[b:ROUTED_TO]->(c) 
-          RETURN a.name AS start, c.name AS destination, b.visits AS visits, b.path AS path
-          ORDER BY visits DESC
-          LIMIT 5
-        `)
-      }
-    )
+//     let { records, summary } = await session.executeRead(
+//       async (tx: ManagedTransaction) => {
+//         return await tx.run(`
+//           MATCH (a)-[b:ROUTED_TO]->(c) 
+//           RETURN a.name AS start, c.name AS destination, b.visits AS visits, b.path AS path
+//           ORDER BY visits DESC
+//           LIMIT 5
+//         `)
+//       }
+//     )
 
-    const routes: any = []
+//     const routes: any = []
 
-    for (const record of records) {
-      const route: any = {}
-      for (const field of record.keys)
-        field == "visits" ? route[field] = record.get(field).low : route[field] = record.get(field)
+//     for (const record of records) {
+//       const route: any = {}
+//       for (const field of record.keys)
+//         field == "visits" ? route[field] = record.get(field).low : route[field] = record.get(field)
         
-      routes.push(route)
-    }
+//       routes.push(route)
+//     }
 
-    res.json({ routes: routes })
-  })()
-}
+//     res.json({ routes: routes })
+//   })()
+// }
 
 // could be improved with a fuzzy find or some sorting
 export function searchBar(req: Request, res: Response) {
@@ -290,8 +322,8 @@ function getDistance(lat1: number, long1: number, lat2: number, long2: number){
 // close database connection when app is exited
 process.on("exit", async (code) => {
   try {
-    await session.close();
-	  await driver.close();
+    // await session.close();
+	  // await driver.close();
   } catch {
     console.log("Database connection failed to close");
   }
