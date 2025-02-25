@@ -120,7 +120,41 @@
           }
         }
       }
+    },
+    "/api/routing/getRoutes": {
+      "get": {
+        "description": "Returns a route plan between a starting location and destination. Examples of input parameters include \"Ford Hall\", \"Tate Hall\", \"Mondale Hall\"",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startLat",
+            "schema": {
+              "type": "number"
+            },
+            "required": true,
+            "description": "Starting latitude to route from"
+          },
+          {
+            "in": "query",
+            "name": "startLong",
+            "schema": {
+              "type": "number"
+            },
+            "required": true,
+            "description": "Starting longtitude to route from"
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "the destination"
+          }
+        ]
     }
+  }
   },
   "components": {
     "securitySchemes": {

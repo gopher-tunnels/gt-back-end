@@ -38,6 +38,74 @@ export let BUILDINGS: any[] = [];
   }
 
 })();
+type Node = {
+  name: string,
+  id: number,
+  kind: "start" | "tunnel" | "target",
+  latitude: number,
+  longitude: number,
+}
+
+type Path = {
+  from: number,
+  to: number,
+  attributes: string[]
+}
+const coor=[[44.976606975468776, -93.23536993145039],[44.97595595602177, -93.2365941832571],
+[44.975340765715636, -93.23607071007078],[44.974594166673526, -93.23630711731622],
+[44.9740327177907, -93.23625645862076],[44.97405063645697, -93.23451717674367],
+[44.97464792212929, -93.23423011080278],[44.97535868397321, -93.23455094920729],
+[44.975872338309486, -93.23452561985957]]
+
+const ns: Node[]=[
+  {name:"Northrop",id: 1, kind: "start", latitude: coor[0][0], longitude: coor[0][1]},
+  {name:"Johnston Hall", id: 2, kind: "tunnel", latitude: coor[1][0], longitude: coor[1][1]},
+  {name:"Walter Library",id: 3, kind: "tunnel", latitude: coor[2][0], longitude: coor[2][1]},
+  {name:"Smith Hall",id: 4, kind: "tunnel", latitude: coor[3][0], longitude: coor[3][1]},
+  {name:"Kolthoff Hall",id: 5, kind: "tunnel", latitude: coor[4][0], longitude: coor[4][1]},
+  {name:"Ford Hall",id: 6, kind: "tunnel", latitude: coor[5][0], longitude: coor[5][1]}, 
+  {name:"Murphy Hall",id: 7, kind: "tunnel", latitude: coor[6][0], longitude: coor[6][1]},
+  {name:"John T. Tate Hall",id: 8, kind: "tunnel", latitude: coor[7][0], longitude: coor[7][1]},
+  {name:"Morrill Hall",id: 9, kind: "target", latitude: coor[8][0], longitude: coor[8][1]}
+]
+type Query = {
+  startLat: number,
+  startLong: number,
+  target: string,
+}
+
+export function getRoutes(req: Request, res: Response, next: NextFunction) {
+  const visited=new Set<number>();
+  const nodes:Node[]=[];
+  const paths:Path[]=[];
+  let target:number=0;
+  for(let i=0;i<=8;i++){
+    if(ns[i].name==req.query.target){
+      visited.add(i);
+      target=i;
+  }
+}
+  const { startLat, startLong}=req.query as unknown as Query;
+  const start:Node={name:"start",id:66,kind:"start",latitude:startLat,longitude:startLong};
+  ns.push(start);
+  let from=66;
+  while(nodes.length<3){
+  const randomNumber: number = Math.floor(Math.random() * 9);
+  if(visited.has(randomNumber)){
+    continue;
+  }
+  paths.push({from:from,to:randomNumber,attributes:[""]});
+  from=randomNumber;
+  ns[randomNumber].kind="tunnel";
+  nodes.push(ns[randomNumber]);
+  visited.add(randomNumber);
+  
+}
+paths.push({from:from,to:target,attributes:[""]});
+ns[target].kind="target";
+nodes.push(ns[target]);
+return res.json({nodes,paths});
+}
 
 export function getBuildings(req: Request, res: Response, next: NextFunction) {
   try{
