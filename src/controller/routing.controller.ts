@@ -79,29 +79,35 @@ export function getRoutes(req: Request, res: Response, next: NextFunction) {
   const nodes:Node[]=[];
   const paths:Path[]=[];
   let target:number=0;
+  let target_valid=false;
   for(let i=0;i<=8;i++){
     if(ns[i].name==req.query.target){
       visited.add(i);
       target=i;
+      target_valid=true;
+      break;
   }
 }
+  if(!target_valid){
+    throw new Error("you must provide a valid target");
+  }
   const { startLat, startLong}=req.query as unknown as Query;
   const start:Node={name:"start",id:66,kind:"start",latitude:startLat,longitude:startLong};
-  ns.push(start);
+  nodes.push(start);
   let from=66;
   while(nodes.length<3){
   const randomNumber: number = Math.floor(Math.random() * 9);
   if(visited.has(randomNumber)){
     continue;
   }
-  paths.push({from:from,to:randomNumber,attributes:[""]});
-  from=randomNumber;
+  paths.push({from:from,to:randomNumber+1,attributes:[""]});
+  from=randomNumber+1;
   ns[randomNumber].kind="tunnel";
   nodes.push(ns[randomNumber]);
   visited.add(randomNumber);
   
 }
-paths.push({from:from,to:target,attributes:[""]});
+paths.push({from:from,to:target+1,attributes:[""]});
 ns[target].kind="target";
 nodes.push(ns[target]);
 return res.json({nodes,paths});
