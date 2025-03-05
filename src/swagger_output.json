@@ -121,7 +121,7 @@
         }
       }
     },
-    "/api/routing/getRoutes": {
+    "/api/routing/routes": {
       "get": {
         "description": "Returns a route plan between a starting location and destination. Examples of input parameters include \"Ford Hall\", \"Tate Hall\", \"Mondale Hall\"",
         "parameters": [

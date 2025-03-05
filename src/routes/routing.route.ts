@@ -27,7 +27,7 @@ router.get('/popular', popularRoutes);
  *     summary: some summary
  *     description: some description
 */
-router.get('/getRoutes', getRoutes);
+router.get('/routes', getRoutes);
 router.get('/search', searchBar);
 
 /** 
