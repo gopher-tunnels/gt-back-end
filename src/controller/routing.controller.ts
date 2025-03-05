@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ManagedTransaction, Session } from 'neo4j-driver-core';
 import dotenv from 'dotenv';
 import { findDir } from './utils/directions'
+import {Vertex,Path,Query} from './routing.types'
 
 dotenv.config();
 
@@ -39,8 +40,85 @@ export let BUILDINGS: any[] = [];
 
 })();
 
+
+
+const ns: Vertex[]=[
+  {name:"Northrop",id: 1, kind: "start", latitude: 44.976606975468776, longitude:-93.23536993145039},
+  {name:"Johnston Hall", id: 2, kind: "tunnel", latitude: 44.97595595602177, longitude:-93.2365941832571},
+  {name:"Walter Library",id: 3, kind: "tunnel", latitude: 44.975340765715636, longitude: -93.23607071007078},
+  {name:"Smith Hall",id: 4, kind: "tunnel", latitude:44.974594166673526, longitude: -93.23630711731622},
+  {name:"Kolthoff Hall",id: 5, kind: "tunnel", latitude: 44.9740327177907, longitude: -93.23625645862076},
+  {name:"Ford Hall",id: 6, kind: "tunnel", latitude:44.97405063645697, longitude:-93.23451717674367}, 
+  {name:"Murphy Hall",id: 7, kind: "tunnel", latitude: 44.97464792212929, longitude: -93.23423011080278},
+  {name:"John T. Tate Hall",id: 8, kind: "tunnel", latitude: 44.97535868397321, longitude: -93.23455094920729},
+  {name:"Morrill Hall",id: 9, kind: "target", latitude: 44.975872338309486, longitude: -93.23452561985957}
+]
+
+
+export function getRoutes(req: Request, res: Response, next: NextFunction) {
+  const visited=new Set<number>();
+  const nodes:Vertex[]=[];
+  const paths:Path[]=[];
+  let target:number=0;
+  let target_valid=false;
+  for(let i=0;i<=8;i++){
+    if(ns[i].name==req.query.target){
+      visited.add(i);
+      target=i;
+      target_valid=true;
+      break;
+  }
+}
+  if(!target_valid){
+    throw new Error("you must provide a valid target");
+  }
+  const { startLat, startLong}=req.query as unknown as Query;
+  const start:Vertex={name:"start",id:66,kind:"start",latitude:startLat,longitude:startLong};
+  nodes.push(start);
+  let from=66;
+  while(nodes.length<3){
+  const randomNumber: number = Math.floor(Math.random() * 9);
+  if(visited.has(randomNumber)){
+    continue;
+  }
+  paths.push({from:from,to:randomNumber+1,attributes:[""]});
+  from=randomNumber+1;
+  ns[randomNumber].kind="tunnel";
+  nodes.push(ns[randomNumber]);
+  visited.add(randomNumber);
+  
+}
+paths.push({from:from,to:target+1,attributes:[""]});
+ns[target].kind="target";
+nodes.push(ns[target]);
+return res.json({nodes,paths});
+}
+
 export function getBuildings(req: Request, res: Response, next: NextFunction) {
-  res.json({ "buildings": BUILDINGS })
+  try{
+    if (req.query.Select === "All") {
+      res.json(JSON.stringify({ "buildings": BUILDINGS }))
+    }
+    else if (req.query.Select === "Some") {
+      const idList = (req.query.IDlist as string)?.split(",") || [];
+      if (!idList || !Array.isArray(idList)) {
+        throw new Error("IDlist must be provided and must be an array");
+      }
+      res.json(JSON.stringify({ "buildings": BUILDINGS.filter(building => idList.includes(building.id)) }))
+    }
+    else if (req.query.Select === "No") {
+      res.json(JSON.stringify({ "buildings": [] }))
+    }
+    else {
+      const error: Error = new Error("The Select parameter must be one of 'All', 'Some', or 'No'.");
+      next(error);
+    }
+  }
+  catch (err: any) {
+    console.log("Query issue")
+    next(err)
+  }
+  
 }
 
 

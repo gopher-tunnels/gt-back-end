@@ -86,14 +86,75 @@
     },
     "/api/routing/buildings": {
       "get": {
-        "description": "Retrieve all buildings and relevant information like name, location (lat/long), and opening and closing hours",
+        "description": "Retrieve buildings and relevant information like name, location (lat/long), and opening and closing hours, handle requests asking for all, some, and no data nodes.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "Select",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Determine if the request asks for all, some, or no data nodes, it should only be 'All','Some', or'No'"
+          },
+         
+         {
+             "in": "query",
+             "name": "IDlist",
+             "schema": {
+                 "type": "array",
+                 "items": {
+                     "type": "string"
+                 }
+             },
+             "required": false,
+             "description": "If the request asks for some buildings, this should be a list of building IDs",
+             "style": "form",
+             "explode": false
+         }
+         
+        ],
         "responses": {
           "default": {
             "description": ""
           }
         }
       }
+    },
+    "/api/routing/routes": {
+      "get": {
+        "description": "Returns a route plan between a starting location and destination. Examples of input parameters include \"Ford Hall\", \"Tate Hall\", \"Mondale Hall\"",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startLat",
+            "schema": {
+              "type": "number"
+            },
+            "required": true,
+            "description": "Starting latitude to route from"
+          },
+          {
+            "in": "query",
+            "name": "startLong",
+            "schema": {
+              "type": "number"
+            },
+            "required": true,
+            "description": "Starting longtitude to route from"
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "the destination"
+          }
+        ]
     }
+  }
   },
   "components": {
     "securitySchemes": {
