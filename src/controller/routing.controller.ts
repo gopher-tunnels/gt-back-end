@@ -142,7 +142,7 @@ export function userLocationRoute(req: Request, res: Response, next: NextFunctio
   let request = {
     lat: parseFloat(req.query.latitude as string),
     long: parseFloat(req.query.longitude as string),
-    destBuildingName: req.query.destinatio
+    destBuildingName: req.query.destination
   };
 
   if (
@@ -151,7 +151,7 @@ export function userLocationRoute(req: Request, res: Response, next: NextFunctio
       request.long < -180 || request.long > 180 ||
       !request.destBuildingName || typeof request.destBuildingName !== 'string'
   ) {
-    res.status(400).send("invalid latitude longitude destination");
+    res.status(400).send("invalid latitude, longitude, destination");
     return;
   }
 
