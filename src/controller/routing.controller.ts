@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ManagedTransaction, Session } from 'neo4j-driver-core';
 import dotenv from 'dotenv';
 import { findDir } from './utils/directions'
-import {Vertex,Path,Query} from './routing.types'
+import {Query, Node, Step, ReturnType} from './routing.types'
 
 dotenv.config();
 
@@ -42,23 +42,23 @@ export let BUILDINGS: any[] = [];
 
 
 
-const ns: Vertex[]=[
-  {name:"Northrop",id: 1, kind: "start", latitude: 44.976606975468776, longitude:-93.23536993145039},
-  {name:"Johnston Hall", id: 2, kind: "tunnel", latitude: 44.97595595602177, longitude:-93.2365941832571},
-  {name:"Walter Library",id: 3, kind: "tunnel", latitude: 44.975340765715636, longitude: -93.23607071007078},
-  {name:"Smith Hall",id: 4, kind: "tunnel", latitude:44.974594166673526, longitude: -93.23630711731622},
-  {name:"Kolthoff Hall",id: 5, kind: "tunnel", latitude: 44.9740327177907, longitude: -93.23625645862076},
-  {name:"Ford Hall",id: 6, kind: "tunnel", latitude:44.97405063645697, longitude:-93.23451717674367}, 
-  {name:"Murphy Hall",id: 7, kind: "tunnel", latitude: 44.97464792212929, longitude: -93.23423011080278},
-  {name:"John T. Tate Hall",id: 8, kind: "tunnel", latitude: 44.97535868397321, longitude: -93.23455094920729},
-  {name:"Morrill Hall",id: 9, kind: "target", latitude: 44.975872338309486, longitude: -93.23452561985957}
+const ns: Node[]=[
+  {name:"Northrop",id: 1, latitude: 44.976606975468776, longitude:-93.23536993145039},
+  {name:"Johnston Hall", id: 2, latitude: 44.97595595602177, longitude:-93.2365941832571},
+  {name:"Walter Library",id: 3, latitude: 44.975340765715636, longitude: -93.23607071007078},
+  {name:"Smith Hall",id: 4, latitude:44.974594166673526, longitude: -93.23630711731622},
+  {name:"Kolthoff Hall",id: 5, latitude: 44.9740327177907, longitude: -93.23625645862076},
+  {name:"Ford Hall",id: 6, latitude:44.97405063645697, longitude:-93.23451717674367}, 
+  {name:"Murphy Hall",id: 7, latitude: 44.97464792212929, longitude: -93.23423011080278},
+  {name:"John T. Tate Hall",id: 8, latitude: 44.97535868397321, longitude: -93.23455094920729},
+  {name:"Morrill Hall",id: 9, latitude: 44.975872338309486, longitude: -93.23452561985957}
 ]
 
 
-export function getRoutes(req: Request, res: Response, next: NextFunction) {
+export function getRoutes(req: Request, res: Response, next: NextFunction){
   const visited=new Set<number>();
-  const nodes:Vertex[]=[];
-  const paths:Path[]=[];
+  
+  const sts:Step[]=[]
   let target:number=0;
   let target_valid=false;
   for(let i=0;i<=8;i++){
@@ -73,25 +73,27 @@ export function getRoutes(req: Request, res: Response, next: NextFunction) {
     throw new Error("you must provide a valid target");
   }
   const { startLat, startLong}=req.query as unknown as Query;
-  const start:Vertex={name:"start",id:66,kind:"start",latitude:startLat,longitude:startLong};
-  nodes.push(start);
+  const start:Node={name:"start",id:66,latitude:startLat,longitude:startLong};
+  let prev=start;
+  let i=0
   let from=66;
-  while(nodes.length<3){
+  while(i<3){
   const randomNumber: number = Math.floor(Math.random() * 9);
   if(visited.has(randomNumber)){
     continue;
   }
-  paths.push({from:from,to:randomNumber+1,attributes:[""]});
-  from=randomNumber+1;
-  ns[randomNumber].kind="tunnel";
-  nodes.push(ns[randomNumber]);
+  const distance= Math.floor(Math.random() * 50);
+  const time=Math.floor(Math.random() * 50);
+  sts.push({node:prev,nextDirection:randomNumber+1,distance:distance,time:time})
+  prev=ns[randomNumber+1];
   visited.add(randomNumber);
+  i+=1;
   
 }
-paths.push({from:from,to:target+1,attributes:[""]});
-ns[target].kind="target";
-nodes.push(ns[target]);
-return res.json({nodes,paths});
+sts.push({node:prev,nextDirection:target+1,distance:35,time:6});
+
+
+return res.json(sts);
 }
 
 export function getBuildings(req: Request, res: Response, next: NextFunction) {
