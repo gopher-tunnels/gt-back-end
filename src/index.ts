@@ -1,4 +1,6 @@
 import express, { Express } from 'express';
+import { driver } from './controller/db';
+
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
 // import axios from "axios";
@@ -20,6 +22,7 @@ app.use("/api/routing", routingRoutes);
 
 // close exit app when app is interrupted
 process.on("SIGINT", async () => {
+  await driver.close(); // Close driver to prevent memory leaks and free connection pool
   process.exit(1)
 });
 

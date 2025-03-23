@@ -6,7 +6,19 @@ const URI = process.env.NEO4J_URI;
 const USER = process.env.NEO4J_USERNAME;
 const PASSWORD = process.env.NEO4J_PASSWORD;
 
-export let driver: Driver | undefined;
+// TO DO
+// ADD CONSTRAINTS TO DATABASE TO PREVENT DELETION 
+
+
+// DO NOT USE DRIVER TO CHECK FOR CONNECTION. DRIVERS ALWAYS EXIST EVEN WHEN CONNECTION IS NOT ESTABLISHED.
+
+/*
+logging: {
+    level: 'info',
+    logger: (level, message) => console.log(level + ' ' + message)
+  },
+*/
+export let driver: Driver //| undefined;
 
 (async () => {
     try {

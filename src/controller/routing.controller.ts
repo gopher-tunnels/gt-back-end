@@ -3,6 +3,7 @@ import { Driver } from 'neo4j-driver';
 import { findDir } from './utils/directions'
 import { driver } from './db';
 
+// Driver =/= connection. Driver is a connection manager. 
 function dbExists(res: Response, driver: Driver | undefined): driver is Driver {
   if (!driver) {
     res.status(500).send("database connection not available");
@@ -11,31 +12,40 @@ function dbExists(res: Response, driver: Driver | undefined): driver is Driver {
   return true;
 }
 
-// TODO: implement using db connection rather than hardcoded data
-export function getBuildings(req: Request, res: Response, next: NextFunction) {
-  // try{
-  //   if (req.query.Select === "All") {
-  //     res.json(JSON.stringify({ "buildings": BUILDINGS }))
-  //   }
-  //   else if (req.query.Select === "Some") {
-  //     const idList = (req.query.IDlist as string)?.split(",") || [];
-  //     if (!idList || !Array.isArray(idList)) {
-  //       throw new Error("IDlist must be provided and must be an array");
-  //     }
-  //     res.json(JSON.stringify({ "buildings": BUILDINGS.filter(building => idList.includes(building.id)) }))
-  //   }
-  //   else if (req.query.Select === "No") {
-  //     res.json(JSON.stringify({ "buildings": [] }))
-  //   }
-  //   else {
-  //     const error: Error = new Error("The Select parameter must be one of 'All', 'Some', or 'No'.");
-  //     next(error);
-  //   }
-  // }
-  // catch (err: any) {
-  //   console.log("Query issue")
-  //   next(err)
-  // }
+type Building = {
+  building_name: string;
+  visits: number;
+  x: number;
+  y: number;
+};
+
+export async function getAllBuildings(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const query = `
+    MATCH (b:Building)
+    RETURN b.building_name AS building_name, 
+            b.visits AS visits,
+            b.x AS x, 
+            b.y AS y
+  `
+  try {
+    const { records, summary } = await driver.executeQuery(query, {}, { routing: 'READ', database: "neo4j" });
+
+    const buildings: Building[] = records.map(record => ({
+      building_name: record.get("building_name"),
+      visits: record.get("visits"),
+      x: record.get("x"),
+      y: record.get("y"),
+    }));
+
+    res.json(buildings);
+  } catch (error) {
+    console.error("Error fetching buildings from database", error);
+    res.status(500).json({ error: {
+      message: "Error fetching buildings from database",
+      status: 500,
+      details: error
+    }});
+  }
 }
 
 // establish a valid session

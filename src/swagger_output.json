@@ -125,37 +125,55 @@
     },
     "/api/routing/buildings": {
       "get": {
-        "description": "Retrieve buildings and relevant information like name, location (lat/long), and opening and closing hours, handle requests asking for all, some, and no data nodes.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "Select",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "Determine if the request asks for all, some, or no data nodes, it should only be 'All','Some', or'No'"
-          },
-         
-         {
-             "in": "query",
-             "name": "IDlist",
-             "schema": {
-                 "type": "array",
-                 "items": {
-                     "type": "string"
-                 }
-             },
-             "required": false,
-             "description": "If the request asks for some buildings, this should be a list of building IDs",
-             "style": "form",
-             "explode": false
-         }
-         
-        ],
+        "description": "Retrieve all building nodes and their information from the database",
         "responses": {
           "default": {
             "description": ""
+          },
+          "200": {
+            "description": "Returns an array of all building nodes with their names, coordinates, visit count, floor, and ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "building_name": { "type": "string" },
+                      "visits": { "type": "number" },
+                      "x": { "type": "number" },
+                      "y": { "type": "number" },
+                      "id": { "type": "number" },
+                      "floor": { "type": "number" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error. Failed to fetch buildings from database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "message": { "type": "string", "example": "Error fetching buildings from database" },
+                        "status": { "type": "integer", "example": 500 },
+                        "details": {
+                          "type": "object",
+                          "properties": {
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
