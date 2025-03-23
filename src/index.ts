@@ -22,7 +22,6 @@ app.use("/api/routing", routingRoutes);
 
 // close exit app when app is interrupted
 process.on("SIGINT", async () => {
-  await driver.close(); // Close driver to prevent memory leaks and free connection pool
   process.exit(1)
 });
 
@@ -30,8 +29,7 @@ process.on("SIGINT", async () => {
 // starts app regardless of db connection.
 verifyConnection()
   .catch(err => {
-    console.error("Could not connect to Neo4j. Continuing without connection");
-    console.error(err);
+    console.error("\nCould not connect to Neo4j. Continuing without connection");
   })
   .finally(() => {
     app.listen(port, () => {
