@@ -11,6 +11,11 @@ type Building = {
   y: number;
 };
 
+/**
+ * Retrieves all building nodes from the database.
+ * 
+ * @returns An array of all building nodes with building_name, visits, x, and y.
+ */
 export async function getAllBuildings(req: Request, res: Response, next: NextFunction): Promise<void> {
   const query = `
     MATCH (b:Building)
