@@ -15,9 +15,8 @@ export const driver: Driver = neo4j.driver(
     URI,
     neo4j.auth.basic(USER, PASSWORD),
     {
-        // Logs driver actions with [Neo4j] prefix
         logging: {
-            level: 'info',
+            level: 'warn',
             logger: (level, message) => console.log(`[Neo4j ${level}] ${message}`)
         }
     }

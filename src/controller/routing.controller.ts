@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import { Driver } from 'neo4j-driver';
 import { findDir } from './utils/directions'
 import { driver } from './db';
 import {Node, Record} from "neo4j-driver"
