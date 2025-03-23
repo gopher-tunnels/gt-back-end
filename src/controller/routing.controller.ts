@@ -3,14 +3,6 @@ import { Driver } from 'neo4j-driver';
 import { findDir } from './utils/directions'
 import { driver } from './db';
 import {Node, Record} from "neo4j-driver"
-// Driver =/= connection. Driver is a connection manager. 
-function dbExists(res: Response, driver: Driver | undefined): driver is Driver {
-  if (!driver) {
-    res.status(500).send("database connection not available");
-    return false;
-  }
-  return true;
-}
 
 type Building = {
   building_name: string;
@@ -50,9 +42,6 @@ export async function getAllBuildings(req: Request, res: Response, next: NextFun
 
 // establish a valid session
 export async function buildingRouting(req: Request, res: Response, next: NextFunction) {
-  if (!dbExists(res, driver)) {
-    return;
-  }
 
   const start = String(req.query.start).toLowerCase();
   const destination = String(req.query.destination).toLowerCase();
@@ -205,9 +194,6 @@ export function userLocationRoute(req: Request, res: Response, next: NextFunctio
 
 // gets top 5 popular routes
 export async function popularRoutes(req: Request, res: Response, next: NextFunction) {
-  if (!dbExists(res, driver)) {
-    return;
-  }
 
   try {
     let { records, summary } = await driver.executeQuery(`
