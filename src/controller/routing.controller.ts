@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { Driver } from 'neo4j-driver';
 import { findDir } from './utils/directions'
 import { driver } from './db';
-
+import {Node, Record} from "neo4j-driver"
 function dbExists(res: Response, driver: Driver | undefined): driver is Driver {
   if (!driver) {
     res.status(500).send("database connection not available");
@@ -237,6 +237,40 @@ export function searchBar(req: Request, res: Response) {
 function getDistance(lat1: number, long1: number, lat2: number, long2: number){
   return Math.sqrt(Math.pow((lat2-lat1), 2) + Math.pow((long2-long1), 2));
 }
+
+/**
+
+Retrieves all building nodes that can be connected to the target building node.
+@param targetBuilding - The name of the target building.
+@returns an array of connected building nodes.
+*/
+async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
+  const session=driver!.session(); 
+  const res:Node[]=[];
+  
+  try{
+    const result=await session.run(
+      
+      `
+      MATCH (n: Node {building_name: $targetBuiding, type: "building_node"})-[*1..]-(connected)
+      WHERE connected.type="building_node"
+      RETURN connected
+
+      `, {targetBuilding:targetBuilding}
+    )
+    
+    result.records.forEach(record=>{
+      res.push(record.get("connected"))
+    }
+
+
+  )
+  }finally{
+    await session.close();
+  }
+  return res;
+}
+
 
 // close database connection when app is exited
 process.on("exit", async (code) => {
