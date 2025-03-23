@@ -2,34 +2,32 @@ import neo4j, { Driver } from "neo4j-driver";
 import dotenv from 'dotenv';
 
 dotenv.config();
+
 const URI = process.env.NEO4J_URI;
 const USER = process.env.NEO4J_USERNAME;
 const PASSWORD = process.env.NEO4J_PASSWORD;
 
-// TO DO
-// ADD CONSTRAINTS TO DATABASE TO PREVENT DELETION 
+if (!URI || !USER || !PASSWORD) {
+    throw new Error(".env missing fields");
+}
 
-
-// DO NOT USE DRIVER TO CHECK FOR CONNECTION. DRIVERS ALWAYS EXIST EVEN WHEN CONNECTION IS NOT ESTABLISHED.
-
-/*
-logging: {
-    level: 'info',
-    logger: (level, message) => console.log(level + ' ' + message)
-  },
-*/
-export let driver: Driver //| undefined;
-
-(async () => {
-    try {
-        if (!URI || !USER || !PASSWORD) {
-            throw new Error("env missing fields");
+export const driver: Driver = neo4j.driver(
+    URI,
+    neo4j.auth.basic(USER, PASSWORD),
+    {
+        logging: {
+            level: 'info',
+            logger: (level, message) => console.log(`[Neo4j ${level}] ${message}`)
         }
-        driver = neo4j.driver(URI, neo4j.auth.basic(USER, PASSWORD))
-        const serverInfo = await driver.getServerInfo()
-        console.log('Database connection estabilished')
-        console.log(serverInfo)
-    } catch(err: any) {
-        console.log(`Could not connect to db, continuing without connection\n${err}\nCause: ${err.cause}`);
     }
-})();
+);
+
+export async function verifyConnection(): Promise<void> {
+    try {
+        const serverInfo = await driver.getServerInfo();
+        console.log('Connected to Neo4j:', serverInfo);
+    } catch (err: any) {
+        console.error('Failed to connect to Neo4j:', err);
+        throw err; 
+    }
+}

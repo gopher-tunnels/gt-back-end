@@ -1,5 +1,5 @@
 import express, { Express } from 'express';
-import { driver } from './controller/db';
+import { driver, verifyConnection } from './controller/db';
 
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
@@ -27,6 +27,14 @@ process.on("SIGINT", async () => {
 });
 
 // for testing
-app.listen(port, () => {
-  console.log(`App is listening on ${port}`);
-});
+// starts app regardless of db connection.
+verifyConnection()
+  .catch(err => {
+    console.error("Could not connect to Neo4j. Continuing without connection");
+    console.error(err);
+  })
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}`);
+    });
+  });
