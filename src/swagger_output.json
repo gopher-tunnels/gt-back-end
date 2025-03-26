@@ -18,21 +18,30 @@
         "parameters": [
           {
             "in": "query",
-            "name": "start",
+            "name": "targetBuilding",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "Starting location to route from"
+            "description": "Name of the target building to route to"
           },
           {
             "in": "query",
-            "name": "destination",
+            "name": "x",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "Ending location to route to"
+            "description": "x coordinate (longitude) of the user's location location"
+          },
+          {
+            "in": "query",
+            "name": "y",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "y coordinate (latitude) of the user's location location"
           }
         ],
         "responses": {
