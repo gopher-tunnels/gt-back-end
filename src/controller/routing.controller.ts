@@ -266,10 +266,7 @@ export function searchBar(req: Request, res: Response) {
   // res.json(matches)
 }
 
-// returns Euclidien distance between two geopositions
-function getDistance(lat1: number, long1: number, lat2: number, long2: number){
-  return Math.sqrt(Math.pow((lat2-lat1), 2) + Math.pow((long2-long1), 2));
-}
+
 
 /**
 
@@ -303,7 +300,51 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
   }
   return res;
 }
+/**
+ * calculate the total distance of the path using Euclidean distance between consecutive nodes.
+ * @param path an array of nodes, each node has x,y coordinates
+ * @returns the total distance from the start to the end
+ *
+ */
+async function getDistance(path: Array<Node>): Promise<number>{
+  //helper function to calculate distance(in km) from lattitude and longtitude
+  function getDistanceFromLatLonInKm(lat1:number,lon1:number,lat2:number,lon2:number):number {
+    var R = 6371; // Radius of the earth in km
+    var dLat = deg2rad(lat2-lat1);  // deg2rad below
+    var dLon = deg2rad(lon2-lon1); 
+    var a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2)
+      ; 
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    var d = R * c; // Distance in km
+    return d;
+  }
+  //helper function to convert an angle from degrees to radians
+  function deg2rad(deg:number):number {
+    return deg * (Math.PI/180)
+  }
+  let sum=0
+  for(let i=0;i<path.length-1;i++){
+    let start=path[i];
+    let end=path[i+1];
+    let dis=getDistanceFromLatLonInKm(start.properties.x,start.properties.y,end.properties.x,end.properties.y);
+    sum=sum+dis;
+  }
+  return sum;
+}
 
+/**
+ * Estimates the travel time based on distance, number of elevators, and other traversal conditions.
+ * Now we are using an 'assuming' speed.
+ * @param distance the distance of a route
+ * @returns the time(minutes)
+ */
+async function getTime(distance:number):Promise<number>{
+  const assuming_V=0.1//0.1 km/minute
+  return  Math.round((distance/assuming_V)* 100) / 100;// round to 2 decimal places
+}
 
 // close database connection when app is exited
 process.on("exit", async (code) => {
