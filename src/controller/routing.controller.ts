@@ -6,32 +6,38 @@ import path from 'path';
 
 type pathNode = {
   building_name: string;
-  x: number;
-  y: number;
+  longitude: number;
+  latitude: number;
 };
 
-function closestNode(buildings: pathNode[], user_x: number, user_y: number, targetBuilding: string): pathNode | "not connectable" {
+/**
+ * Retrieves 3 closets nodes.
+ * TODO: Add a 4th node that is at least behind the user just in case.
+ * - Use vector normalization for better foward measuring
+ * - Remove nodes from closest array that are part of immediate path for closer ones.
+ * 
+ * @returns An array of the 3 closest building nodes in order from closest to furthest
+ */
+function closestNode(buildings: pathNode[], user_longitude: number, user_latitude: number, targetBuilding: string): pathNode[] | "not connectable" {
   const destination = buildings.find(b => b.building_name === targetBuilding);
   if (!destination) return "not connectable";
 
-  const distanceToDestination = Math.hypot(destination.x - user_x, destination.y - user_y);
+  const userToDestDist = getDistance(user_latitude, user_latitude, destination.longitude, destination.latitude)
 
-  const validBuildings = buildings.filter(building => {
-    const buildingToDestination = Math.hypot(
-      destination.x - building.x,
-      destination.y - building.y
-    );
+  const forwardBuildings = buildings.filter((building => {
+    const buildingToDestDist = getDistance(building.longitude, building.latitude, destination.longitude, destination.latitude)
+    return buildingToDestDist < (userToDestDist * 1.06) // backwards leeway weight 
+  }))
 
-    return buildingToDestination <= distanceToDestination;
+  forwardBuildings.sort((a, b) => {
+    const distA = Math.hypot(a.longitude - user_longitude, a.latitude - user_latitude);
+    const distB = Math.hypot(b.longitude - user_longitude, b.latitude - user_latitude);
+    return distA - distB;
   });
 
-  if (validBuildings.length === 0) return "not connectable";
+  const top3 = forwardBuildings.slice(0, 3);
 
-  const distanceFromCurrent = (b: pathNode) => Math.hypot(b.x - user_x, b.y - user_y);
-
-  return validBuildings.reduce((closest, current) =>
-    distanceFromCurrent(current) < distanceFromCurrent(closest) ? current : closest
-  );
+  return top3;
 }
 
 /**
@@ -43,17 +49,16 @@ export async function getAllBuildings(req: Request, res: Response, next: NextFun
   const query = `
     MATCH (b:Building)
     RETURN b.building_name AS building_name, 
-            b.x AS x, 
-            b.y AS y
+            b.longitude AS longitude, 
+            b.latitude AS latitude
   `
   try {
     const { records, summary } = await driver.executeQuery(query, {}, { routing: 'READ', database: "neo4j" });
 
     const buildings: pathNode[] = records.map(record => ({
       building_name: record.get("building_name"),
-      visits: record.get("visits"),
-      x: record.get("x"),
-      y: record.get("y"),
+      longitude: record.get("longitude"),
+      latitude: record.get("latitude"),
     }));
 
     res.json(buildings);
@@ -72,40 +77,49 @@ export async function getAllBuildings(req: Request, res: Response, next: NextFun
  */
 export async function getRoute(req: Request, res: Response, next: NextFunction) {
   const targetBuilding = String(req.query.targetBuilding);
-  const x = parseFloat(req.query.x as string);
-  const y = parseFloat(req.query.y as string);
+  const longitude = parseFloat(req.query.longitude as string);
+  const latitude = parseFloat(req.query.latitude as string);
 
-  if (!targetBuilding || isNaN(x) || isNaN(y)) {
+  if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
     console.error ("Missing target building or coordinates");
     res.status(400).send("Invalid query parameters");
   }
 
   let connectedBuildings
+  let session = driver.session({ database: 'neo4j' })
   try {
-    const { records, summary } = await driver.executeQuery(`
-      MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
-      RETURN start.building_name AS name, start.x AS x, start.y AS y
-      UNION
-      MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
-      MATCH path = (start)-[*1..400]-(connected:Node)
-      WHERE connected.type = "building_node"
+    let {records, summary} = await session.executeRead(async tx => {
+      return await tx.run(`
+        MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
+        RETURN start.building_name AS name, start.longitude AS longitude, start.latitude AS latitude
+        UNION
+        MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
+        MATCH path = (start)-[*1..400]-(connected:Node)
+        WHERE connected.type = "building_node"
         AND connected <> start
-      RETURN DISTINCT connected.building_name AS name, connected.x AS x, connected.y AS y
-    `,{ targetBuilding: targetBuilding },
-    { routing: 'READ', database: "neo4j" });
-
+        RETURN DISTINCT connected.building_name AS name, connected.longitude AS longitude, connected.latitude AS latitude
+        `, { targetBuilding: targetBuilding },
+      )
+    })
+    
     connectedBuildings = records.map(record => ({
       building_name: record.get("name"),
-      x: record.get("x"),
-      y: record.get("y"),
+      longitude: record.get("longitude"),
+      latitude: record.get("latitude"),
     }));
 
-    const closest = closestNode(connectedBuildings, x, y, targetBuilding)
+    const closest = closestNode(connectedBuildings, longitude, latitude, targetBuilding)
+    
+
+
     res.json(closest)
   } catch(err: any) {
-    console.log("Error finding connected", err)
-    res.status(500).send("Failed finding connected")
+    console.log("Error finding Route", err)
+    res.status(500).send("Failed finding Route")
+  } finally {
+    session.close()
   }
+
 }
 
 export function userLocationRoute(req: Request, res: Response, next: NextFunction) {
@@ -164,8 +178,8 @@ export function searchBar(req: Request, res: Response) {
 }
 
 // returns Euclidien distance between two geopositions
-function getDistance(lat1: number, long1: number, lat2: number, long2: number){
-  return Math.sqrt(Math.pow((lat2-lat1), 2) + Math.pow((long2-long1), 2));
+function getDistance(x1: number, y1: number, x2: number, y2: number){
+  return Math.sqrt(Math.pow((x2-x1), 2) + Math.pow((y2-y1), 2));
 }
 
 /**

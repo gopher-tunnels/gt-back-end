@@ -27,21 +27,21 @@
           },
           {
             "in": "query",
-            "name": "x",
+            "name": "latitude",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "x coordinate (longitude) of the user's location location"
+            "description": "latitude of the user's location location"
           },
           {
             "in": "query",
-            "name": "y",
+            "name": "longitude",
             "schema": {
               "type": "string"
             },
             "required": true,
-            "description": "y coordinate (latitude) of the user's location location"
+            "description": "longitude of the user's location location"
           }
         ],
         "responses": {
