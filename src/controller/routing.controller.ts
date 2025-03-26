@@ -3,12 +3,41 @@ import { findDir } from './utils/directions'
 import { driver } from './db';
 import {Node, Record} from "neo4j-driver"
 
+//TESTING
+import testBuildings from "../testBuildings.json"
+
 type Building = {
   building_name: string;
   visits: number;
   x: number;
   y: number;
 };
+
+function closestNode(buildings: Building[], x0: number, y0: number): Building {
+  return buildings.reduce((closest, current) => {
+    const dist = (b: Building) => Math.hypot(b.x - x0, b.y - y0);
+    return dist(current) < dist(closest) ? current : closest;
+  });
+}
+
+export async function getClosestNode(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const x = parseFloat(req.query.x as string);
+    const y = parseFloat(req.query.y as string);
+
+    if (isNaN(x) || isNaN(y)) {
+      res.status(400).json({ error: "Missing or invalid 'x' or 'y' query parameters." });
+    }
+
+    const buildings = testBuildings as Building[];
+    const closest = closestNode(buildings, x, y);
+
+    res.status(200).json(closest);
+  } catch (error) {
+    console.error("Error in getClosestNode:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
 
 /**
  * Retrieves all building nodes from the database.
@@ -50,6 +79,9 @@ export async function buildingRouting(req: Request, res: Response, next: NextFun
   const start = String(req.query.start).toLowerCase();
   const destination = String(req.query.destination).toLowerCase();
 
+  res.json(connectedBuildings(destination));
+
+  /*
   try {
     // shortest route example
     let { records, summary } = await driver.executeQuery(
@@ -138,6 +170,7 @@ export async function buildingRouting(req: Request, res: Response, next: NextFun
     console.error("Error creating or updating ROUTED_TO relationship:", error);
     res.status(500).send("Error querying db");
   }
+    */
 
 }
 
