@@ -259,11 +259,24 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
 }
 
 // could be improved with a fuzzy find or some sorting
-export function searchBar(req: Request, res: Response) {
+export async function searchBar(req: Request, res: Response) {
   // TODO: rewrite using db rather than BUILDINGS object
   // let input = req.query.input?.toString().toLowerCase();
   // const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
   // res.json(matches)
+  const results : string[] = []
+  try {
+    const input = req.query.input?.toString();
+    const searchRes: any[] = await getSearchResults(input);
+    searchRes.forEach(element => {
+      results.push(element)
+    });
+    return results
+  } catch (e) {
+    console.log(e)
+    res.status(503).send("Error while querying the database")
+  }
+  res.json({results})
 }
 
 // returns Euclidien distance between two geopositions
@@ -301,6 +314,38 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
   }finally{
     await session.close();
   }
+  return res;
+}
+
+
+/**
+ * Retrieves the closest matching building name based on the search input.
+ *
+ * @param searchInputText - The partial search input from the user.
+ * @returns An ordered list of buildings based on % Match to the search input
+ */
+async function getSearchResults(searchInputText: string | undefined) {
+  const res : any[] = []
+  
+  try {
+    const result=await driver.executeQuery(
+      `
+      CALL db.index.fulltext.queryNodes('Building', 'building_name: "$search_input_text"')
+      YIELD node, score
+      RETURN node, score
+      `, {search_input_text:searchInputText}
+    );
+
+    result.records.forEach(record=>{
+      res.push(record.get("building_name"))
+    });
+
+    console.log(result);
+  } catch (e) {
+    console.log("Unable to query database, error: ", e);
+    throw e;
+  } 
+
   return res;
 }
 
