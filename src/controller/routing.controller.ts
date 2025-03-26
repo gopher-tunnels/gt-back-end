@@ -20,14 +20,11 @@ function closestNode(buildings: Building[], x0: number, y0: number): Building {
   });
 }
 
+// Testing route for closestNode
 export async function getClosestNode(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const x = parseFloat(req.query.x as string);
     const y = parseFloat(req.query.y as string);
-
-    if (isNaN(x) || isNaN(y)) {
-      res.status(400).json({ error: "Missing or invalid 'x' or 'y' query parameters." });
-    }
 
     const buildings = testBuildings as Building[];
     const closest = closestNode(buildings, x, y);
@@ -35,7 +32,7 @@ export async function getClosestNode(req: Request, res: Response, next: NextFunc
     res.status(200).json(closest);
   } catch (error) {
     console.error("Error in getClosestNode:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).send("Error finding route");
   }
 }
 
@@ -63,13 +60,9 @@ export async function getAllBuildings(req: Request, res: Response, next: NextFun
     }));
 
     res.json(buildings);
-  } catch (error) {
-    console.error("Error fetching buildings from database", error);
-    res.status(500).json({ error: {
-      message: "Error fetching buildings from database",
-      status: 500,
-      details: error
-    }});
+  } catch (error: any) {
+      console.error("Error fetching buildings from database", error);
+      res.status(500).send("Error fetching buildings from database");
   }
 }
 

@@ -11,6 +11,8 @@ if (!URI || !USER || !PASSWORD) {
     throw new Error(".env missing fields");
 }
 
+// ASSUMING DRIVER ALWAYS EXISTS, FOR DEVELOPMENT
+// In production, if driver fails frontend should go to backup data or not start at all.
 export const driver: Driver = neo4j.driver(
     URI,
     neo4j.auth.basic(USER, PASSWORD),
@@ -27,7 +29,6 @@ export async function verifyConnection(): Promise<void> {
         const serverInfo = await driver.getServerInfo();
         console.log('Connected to Neo4j:', serverInfo);
     } catch (err: any) {
-        console.error('Failed to connect to Neo4j:', err);
-        throw err; 
+        console.error("\nCould not connect to Neo4j. Continuing without connection.");
     }
 }
