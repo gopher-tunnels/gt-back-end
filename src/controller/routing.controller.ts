@@ -1,26 +1,37 @@
 import { Request, Response, NextFunction } from 'express';
 import { findDir } from './utils/directions'
 import { driver } from './db';
-import {Node, Record} from "neo4j-driver"
-import path from 'path';
+import {Neo4jError, Node, Path, PathSegment} from "neo4j-driver"
 
-type pathNode = {
+interface PathNode {
   building_name: string;
   longitude: number;
   latitude: number;
-};
+}
+
+interface RoutePoint extends PathNode {
+  floor: string; // SB, 0B, 1, 2...
+  node_type: string; // elevator, building_node, or path
+}
+
+// Ordered array of nodes. Order of nodes is the order the user needs to walk
+// Need to know whether to omit segments for frontend
+interface RouteResult {
+  route: RoutePoint[];
+  totalDistance: number;
+}
 
 /**
- * Retrieves 3 closets nodes.
+ * Retrieves 3 closets nodes to user location.
  * TODO: Add a 4th node that is at least behind the user just in case.
  * - Use vector normalization for better foward measuring
  * - Remove nodes from closest array that are part of immediate path for closer ones.
  * 
  * @returns An array of the 3 closest building nodes in order from closest to furthest
  */
-function closestNode(buildings: pathNode[], user_longitude: number, user_latitude: number, targetBuilding: string): pathNode[] | "not connectable" {
+function closestNode(buildings: PathNode[], user_longitude: number, user_latitude: number, targetBuilding: string): PathNode[] | undefined {
   const destination = buildings.find(b => b.building_name === targetBuilding);
-  if (!destination) return "not connectable";
+  if (!destination) return undefined;
 
   const userToDestDist = getDistance(user_latitude, user_latitude, destination.longitude, destination.latitude)
 
@@ -35,9 +46,105 @@ function closestNode(buildings: pathNode[], user_longitude: number, user_latitud
     return distA - distB;
   });
 
-  const top3 = forwardBuildings.slice(0, 3);
+  return forwardBuildings.slice(0, 3);
+}
 
-  return top3;
+/**
+ * Computes and returns the full navigable route from a given start location to a target building.
+ * 
+ * @param coords - The starting location as longitude, latitude coordinates.
+ * @param targetDestination - The name of the target building.
+ * @returns A array of route objects that the frontend can display.
+ */
+export async function route(req: Request, res: Response, next: NextFunction) {
+  const targetBuilding = String(req.query.targetBuilding);
+  const longitude = parseFloat(req.query.longitude as string);
+  const latitude = parseFloat(req.query.latitude as string);
+
+  if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
+    console.error ("Missing target building or coordinates");
+    res.status(400).send("Invalid query parameters");
+  }
+
+  const session = driver.session({ database: 'neo4j' })
+
+  try {
+    const { records: buildingRecords } = await session.executeRead(async tx => {
+      return await tx.run(`
+        MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
+        RETURN start.building_name AS name, start.longitude AS longitude, start.latitude AS latitude
+        UNION
+        MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
+        MATCH path = (start)-[*1..400]-(connected:Node)
+        WHERE connected.node_type = "building_node"
+        AND connected <> start
+        RETURN DISTINCT connected.building_name AS name, connected.longitude AS longitude, connected.latitude AS latitude
+        `, { targetBuilding: targetBuilding },
+      )
+    })
+    
+    const connectedBuildings = buildingRecords.map(record => ({
+      building_name: record.get("name"),
+      longitude: record.get("longitude"),
+      latitude: record.get("latitude"),
+    }));
+
+    const closeNodes: PathNode[] | undefined = closestNode(connectedBuildings, longitude, latitude, targetBuilding);
+    if (!closeNodes || closeNodes.length === 0) {
+      res.status(400).send("Bad Request. Could not find route");
+      return;
+    }
+    
+    const start: PathNode = closeNodes[0]; // Only using closest node for now
+
+    const { records: pathRecords } = await session.executeRead(async tx => {
+      return await tx.run(`
+        MATCH (start:Node {building_name: $startName, node_type: 'building_node'})
+        WITH start
+        MATCH (end:Node {building_name: $endName, node_type: 'building_node'})
+        CALL apoc.algo.aStar(
+          start, end,
+          'CONNECTED_TO',
+          'distance', 'latitude', 'longitude'
+        )
+        YIELD path, weight
+        RETURN path, weight
+      `, {startName: start.building_name, endName: targetBuilding});
+    });
+
+    const pathRecord = pathRecords[0];
+    if (!pathRecord) {
+      res.status(404).send("No path found");
+      return;
+    }
+
+    const path = pathRecord.get("path") as Path;
+    const weight = pathRecord.get("weight") as number;
+
+    // Get all nodes in order: [start, segment1.end, segment2.end, ...]
+    const nodes: Node[] = [path.start, ...path.segments.map((s: PathSegment) => s.end)];
+
+    const route: RoutePoint[] = nodes.map((node: Node): RoutePoint => ({
+      building_name: node.properties.building_name,
+      latitude: node.properties.latitude,
+      longitude: node.properties.longitude,
+      floor: node.properties.floor,
+      node_type: node.properties.node_type
+    }));
+
+    const result: RouteResult = {
+      route,
+      totalDistance: weight
+    };
+
+    res.json(result);
+  } catch(err: any) {
+    console.log("Error finding Route", err)
+    res.status(500).send("Failed finding Route")
+  } finally {
+    session.close()
+  }
+
 }
 
 /**
@@ -45,17 +152,16 @@ function closestNode(buildings: pathNode[], user_longitude: number, user_latitud
  * 
  * @returns An array of all building nodes with building_name, visits, x, and y.
  */
-export async function getAllBuildings(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const query = `
+export async function buildings(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { records, summary } = await driver.executeQuery(`
     MATCH (b:Building)
     RETURN b.building_name AS building_name, 
             b.longitude AS longitude, 
             b.latitude AS latitude
-  `
-  try {
-    const { records, summary } = await driver.executeQuery(query, {}, { routing: 'READ', database: "neo4j" });
+    `, {}, { routing: 'READ', database: "neo4j" });
 
-    const buildings: pathNode[] = records.map(record => ({
+    const buildings: PathNode[] = records.map(record => ({
       building_name: record.get("building_name"),
       longitude: record.get("longitude"),
       latitude: record.get("latitude"),
@@ -68,81 +174,8 @@ export async function getAllBuildings(req: Request, res: Response, next: NextFun
   }
 }
 
-/**
- * Computes and returns the full navigable route from a given start location to a target building.
- * 
- * @param coords - The starting location as longitude, latitude coordinates.
- * @param targetDestination - The name of the target building.
- * @returns A array of route objects that the frontend can display.
- */
-export async function getRoute(req: Request, res: Response, next: NextFunction) {
-  const targetBuilding = String(req.query.targetBuilding);
-  const longitude = parseFloat(req.query.longitude as string);
-  const latitude = parseFloat(req.query.latitude as string);
-
-  if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
-    console.error ("Missing target building or coordinates");
-    res.status(400).send("Invalid query parameters");
-  }
-
-  let connectedBuildings
-  let session = driver.session({ database: 'neo4j' })
-  try {
-    let {records, summary} = await session.executeRead(async tx => {
-      return await tx.run(`
-        MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
-        RETURN start.building_name AS name, start.longitude AS longitude, start.latitude AS latitude
-        UNION
-        MATCH (start:Node {building_name: "Ford Hall", type: "building_node"})
-        MATCH path = (start)-[*1..400]-(connected:Node)
-        WHERE connected.type = "building_node"
-        AND connected <> start
-        RETURN DISTINCT connected.building_name AS name, connected.longitude AS longitude, connected.latitude AS latitude
-        `, { targetBuilding: targetBuilding },
-      )
-    })
-    
-    connectedBuildings = records.map(record => ({
-      building_name: record.get("name"),
-      longitude: record.get("longitude"),
-      latitude: record.get("latitude"),
-    }));
-
-    const closest = closestNode(connectedBuildings, longitude, latitude, targetBuilding)
-    
-
-
-    res.json(closest)
-  } catch(err: any) {
-    console.log("Error finding Route", err)
-    res.status(500).send("Failed finding Route")
-  } finally {
-    session.close()
-  }
-
-}
-
-export function userLocationRoute(req: Request, res: Response, next: NextFunction) {
-  let request = {
-    lat: parseFloat(req.query.latitude as string),
-    long: parseFloat(req.query.longitude as string),
-    destBuildingName: req.query.destination
-  };
-
-  if (
-    isNaN(request.lat) || isNaN(request.long) ||
-      request.lat < -90 || request.lat > 90 ||
-      request.long < -180 || request.long > 180 ||
-      !request.destBuildingName || typeof request.destBuildingName !== 'string'
-  ) {
-    res.status(400).send("invalid latitude, longitude, destination");
-    return;
-  }
-}
-
 // gets top 5 popular routes
 export async function popularRoutes(req: Request, res: Response, next: NextFunction) {
-
   try {
     let { records, summary } = await driver.executeQuery(`
       MATCH (a)-[b:ROUTED_TO]->(c)
@@ -163,9 +196,9 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
 
     res.json({ routes: routes });
 
-  } catch (e) {
-    console.error("popularRoutes failed: ", e);
-    res.status(500).send("failed to query db");
+  } catch (err) {
+    console.error("popularRoutes failed: ", err);
+    res.status(500).send("Failed to query database.");
   }
 }
 

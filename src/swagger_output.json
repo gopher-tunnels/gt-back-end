@@ -93,45 +93,6 @@
         }
       }
     },
-    "/api/routing/userlocation": {
-      "get": {
-        "description": "Finds the route for a geoposition",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "latitude",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "latitude of the start position"
-          },
-          {
-            "in": "query",
-            "name": "longitude",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "longitude of the start position"
-          },
-          {
-            "in": "query",
-            "name": "destination",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "Ending location to route to"
-          }
-        ],
-        "responses": {
-          "default": {
-            "description": ""
-          }
-        }
-      }
-    },
     "/api/routing/buildings": {
       "get": {
         "description": "Retrieve all building nodes and their information from the database",
