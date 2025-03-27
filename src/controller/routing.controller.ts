@@ -4,14 +4,14 @@ import { driver } from './db';
 import {Neo4jError, Node, Path, PathSegment} from "neo4j-driver"
 
 interface PathNode {
-  building_name: string;
+  buildingName: string;
   longitude: number;
   latitude: number;
 }
 
 interface RoutePoint extends PathNode {
   floor: string; // SB, 0B, 1, 2...
-  node_type: string; // elevator, building_node, or path
+  nodeType: string; // elevator, building_node, or path
 }
 
 // Ordered array of nodes. Order of nodes is the order the user needs to walk
@@ -30,7 +30,7 @@ interface RouteResult {
  * @returns An array of the 3 closest building nodes in order from closest to furthest
  */
 function closestNode(buildings: PathNode[], user_longitude: number, user_latitude: number, targetBuilding: string): PathNode[] | undefined {
-  const destination = buildings.find(b => b.building_name === targetBuilding);
+  const destination = buildings.find(b => b.buildingName === targetBuilding);
   if (!destination) return undefined;
 
   const userToDestDist = getPointDistance(user_latitude, user_latitude, destination.longitude, destination.latitude)
@@ -84,7 +84,7 @@ export async function route(req: Request, res: Response, next: NextFunction) {
     })
     
     const connectedBuildings = buildingRecords.map(record => ({
-      building_name: record.get("name"),
+      buildingName: record.get("name"),
       longitude: record.get("longitude"),
       latitude: record.get("latitude"),
     }));
@@ -109,7 +109,7 @@ export async function route(req: Request, res: Response, next: NextFunction) {
         )
         YIELD path, weight
         RETURN path, weight
-      `, {startName: start.building_name, endName: targetBuilding});
+      `, {startName: start.buildingName, endName: targetBuilding});
     });
 
     const pathRecord = pathRecords[0];
@@ -125,11 +125,11 @@ export async function route(req: Request, res: Response, next: NextFunction) {
     const nodes: Node[] = [path.start, ...path.segments.map((s: PathSegment) => s.end)];
 
     const route: RoutePoint[] = nodes.map((node: Node): RoutePoint => ({
-      building_name: node.properties.building_name,
+      buildingName: node.properties.building_name,
       latitude: node.properties.latitude,
       longitude: node.properties.longitude,
       floor: node.properties.floor,
-      node_type: node.properties.node_type
+      nodeType: node.properties.node_type
     }));
 
     const result: RouteResult = {
@@ -162,7 +162,7 @@ export async function buildings(req: Request, res: Response, next: NextFunction)
     `, {}, { routing: 'READ', database: "neo4j" });
 
     const buildings: PathNode[] = records.map(record => ({
-      building_name: record.get("building_name"),
+      buildingName: record.get("building_name"),
       longitude: record.get("longitude"),
       latitude: record.get("latitude"),
     }));
