@@ -33,10 +33,10 @@ function closestNode(buildings: PathNode[], user_longitude: number, user_latitud
   const destination = buildings.find(b => b.building_name === targetBuilding);
   if (!destination) return undefined;
 
-  const userToDestDist = getDistance(user_latitude, user_latitude, destination.longitude, destination.latitude)
+  const userToDestDist = getPointDistance(user_latitude, user_latitude, destination.longitude, destination.latitude)
 
   const forwardBuildings = buildings.filter((building => {
-    const buildingToDestDist = getDistance(building.longitude, building.latitude, destination.longitude, destination.latitude)
+    const buildingToDestDist = getPointDistance(building.longitude, building.latitude, destination.longitude, destination.latitude)
     return buildingToDestDist < (userToDestDist * 1.06) // backwards leeway weight 
   }))
 
@@ -211,7 +211,7 @@ export function searchBar(req: Request, res: Response) {
 }
 
 // returns Euclidien distance between two geopositions
-function getDistance(x1: number, y1: number, x2: number, y2: number){
+function getPointDistance(x1: number, y1: number, x2: number, y2: number){
   return Math.sqrt(Math.pow((x2-x1), 2) + Math.pow((y2-y1), 2));
 }
 
