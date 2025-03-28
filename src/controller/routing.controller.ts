@@ -377,16 +377,12 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
     result.records.forEach(record=>{
       res.push(record.get("connected"))
     }
-
-
   )
   }finally{
     await session.close();
   }
   return res;
 }
-
-
 
 
 // close database connection when app is exited
