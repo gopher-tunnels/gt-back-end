@@ -259,29 +259,45 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
   }
 }
 
-
+/**
+ * GET /search
+ * Retrieves a list of the closest matching building names 
+ *
+ * @param req - The request containing the search input from the user.
+ * @param res - The response dedicated for the end user 
+ * @returns res.json() -> An ordered list of buildings based on % Match to the search input
+ */
 export async function searchBar(req: Request, res: Response) {
   try {
+    // Retrieve the input string from the request
     const input = req.query.input?.toString().trim();
+
     // If the input doesn't exist, then return empty array
     if (!input) {
       return res.json([]);
     }
 
+    // Send a query to the database for the search results with given input
     const searchResults = await getSearchResults(input);
-    // Extract just the names of the top 5
+
+    // Extract just the names
     const matches = searchResults.map(result => 
       typeof result === 'string' ? result : result.name
-    )
-
-    res.json(matches)    
-  } catch (e: any) {
+    );
+    
+    // Send all matches 
+    res.json(matches); 
+       
+  } catch (e: any) { // Catching any error, if we want to specialize we could make cases for particular error codes
+    // Logging, I would keep this here for debugging purposes
     console.log('Search Error: ', e)
+
+    // Currently I'm assuming that this error will be concerning the database so I'm throwing a 503
     res.status(503).json({
       error: "Error while querying the database",
       details: e.message
-    })
-  } 
+    });
+  }; 
 }
 
 /**
@@ -291,14 +307,21 @@ export async function searchBar(req: Request, res: Response) {
  * @returns An ordered list of buildings based on % Match to the search input
  */
 async function getSearchResults(searchInputText: string | undefined) {
-  if (!searchInputText) return []
-  const results: {name: string, score: number}[] = []
-  console.log(searchInputText)
+  // Check if the search input text is valid, if not, return an empty list
+  if (!searchInputText) return [];
+
+  // Aggregating query results into a list of a dict containing name and score
+  const results: {name: string, score: number}[] = [];
+
+  // Logging for debug purposes
+  console.log("Search input text:", searchInputText)
+
   try {
     // Clean the input text to prevent injection
     const cleanInput = searchInputText?.replace(/"/g, '\\"');
 
-    const result=await driver.executeQuery(
+    // Querying neo4j using fuzzy search, obtaining only top 5 results (automatically desc, but I'll make sure)
+    const queryResult=await driver.executeQuery(
       `
       CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input) 
       YIELD node, score 
@@ -307,14 +330,18 @@ async function getSearchResults(searchInputText: string | undefined) {
       LIMIT 5
       `, {search_input: `"${cleanInput}~"` }
     );
-    console.log(result)
-    result.records.forEach(record => {
+
+    // Logging for the result records, uncomment for debugging lol
+    // console.log(result.records)
+
+    // Populate the results list with name and scores
+    queryResult.records.forEach(record => {
       results.push({
         name: record.get('name'),
         score: record.get('score')
       });
     });
-  } catch (e) {
+  } catch (e) { // Erroring out, assuming it is a database problem
     console.log("Unable to query database, error: ", e);
     throw e;
   }
