@@ -251,6 +251,7 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
     }
 
     res.json({ routes: routes });
+    res.status(200).send("Success in finding route")
 
   } catch (e) {
     console.error("popularRoutes failed: ", e);
@@ -258,26 +259,68 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
   }
 }
 
-// could be improved with a fuzzy find or some sorting
+
 export async function searchBar(req: Request, res: Response) {
-  // TODO: rewrite using db rather than BUILDINGS object
-  // let input = req.query.input?.toString().toLowerCase();
-  // const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
-  // res.json(matches)
-  const results : string[] = []
   try {
-    const input = req.query.input?.toString();
-    const searchRes: any[] = await getSearchResults(input);
-    searchRes.forEach(element => {
-      results.push(element)
-    });
-    return results
-  } catch (e) {
-    console.log(e)
-    res.status(503).send("Error while querying the database")
-  }
-  res.json({results})
+    const input = req.query.input?.toString().trim();
+    // If the input doesn't exist, then return empty array
+    if (!input) {
+      return res.json([]);
+    }
+
+    const searchResults = await getSearchResults(input);
+    // Extract just the names of the top 5
+    const matches = searchResults.map(result => 
+      typeof result === 'string' ? result : result.name
+    )
+
+    res.json(matches)    
+  } catch (e: any) {
+    console.log('Search Error: ', e)
+    res.status(503).json({
+      error: "Error while querying the database",
+      details: e.message
+    })
+  } 
 }
+
+/**
+ * Retrieves the closest matching building name based on the search input.
+ *
+ * @param searchInputText - The partial search input from the user.
+ * @returns An ordered list of buildings based on % Match to the search input
+ */
+async function getSearchResults(searchInputText: string | undefined) {
+  if (!searchInputText) return []
+  const results: {name: string, score: number}[] = []
+  console.log(searchInputText)
+  try {
+    // Clean the input text to prevent injection
+    const cleanInput = searchInputText?.replace(/"/g, '\\"');
+
+    const result=await driver.executeQuery(
+      `
+      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input) 
+      YIELD node, score 
+      RETURN node.building_name AS name, score
+      ORDER BY score DESC
+      LIMIT 5
+      `, {search_input: `"${cleanInput}~"` }
+    );
+    console.log(result)
+    result.records.forEach(record => {
+      results.push({
+        name: record.get('name'),
+        score: record.get('score')
+      });
+    });
+  } catch (e) {
+    console.log("Unable to query database, error: ", e);
+    throw e;
+  }
+  return results;
+}
+
 
 // returns Euclidien distance between two geopositions
 function getDistance(lat1: number, long1: number, lat2: number, long2: number){
@@ -295,9 +338,7 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
   const res:Node[]=[];
   
   try{
-    const result=await session.run(
-      
-      `
+    let { records, summary } = await driver.executeQuery(`
       MATCH (n: Node {building_name: $targetBuiding, type: "building_node"})-[*1..]-(connected)
       WHERE connected.type="building_node"
       RETURN connected
@@ -305,7 +346,7 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
       `, {targetBuilding:targetBuilding}
     )
     
-    result.records.forEach(record=>{
+    records.forEach(record=>{
       res.push(record.get("connected"))
     }
 
@@ -318,36 +359,6 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
 }
 
 
-/**
- * Retrieves the closest matching building name based on the search input.
- *
- * @param searchInputText - The partial search input from the user.
- * @returns An ordered list of buildings based on % Match to the search input
- */
-async function getSearchResults(searchInputText: string | undefined) {
-  const res : any[] = []
-  
-  try {
-    const result=await driver.executeQuery(
-      `
-      CALL db.index.fulltext.queryNodes('Building', 'building_name: "$search_input_text"')
-      YIELD node, score
-      RETURN node, score
-      `, {search_input_text:searchInputText}
-    );
-
-    result.records.forEach(record=>{
-      res.push(record.get("building_name"))
-    });
-
-    console.log(result);
-  } catch (e) {
-    console.log("Unable to query database, error: ", e);
-    throw e;
-  } 
-
-  return res;
-}
 
 
 // close database connection when app is exited
