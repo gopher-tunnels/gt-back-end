@@ -284,8 +284,8 @@ export async function searchBar(req: Request, res: Response) {
       typeof result === 'string' ? result : result.name
     );
     
-    // Send all matches 
-    res.json(matches); 
+    // Send all matches with 200 status code
+    res.status(200).json(matches); 
        
   } catch (e: any) { // Catching any error, if we want to specialize we could make cases for particular error codes
     // Logging, I would keep this here for debugging purposes
