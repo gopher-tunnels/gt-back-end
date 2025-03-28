@@ -365,7 +365,8 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
   const res:Node[]=[];
   
   try{
-    let { records, summary } = await driver.executeQuery(`
+    const result=await session.run(
+      `
       MATCH (n: Node {building_name: $targetBuiding, type: "building_node"})-[*1..]-(connected)
       WHERE connected.type="building_node"
       RETURN connected
@@ -373,7 +374,7 @@ async function connectedBuildings(targetBuilding:string): Promise<Node[]>{
       `, {targetBuilding:targetBuilding}
     )
     
-    records.forEach(record=>{
+    result.records.forEach(record=>{
       res.push(record.get("connected"))
     }
 
