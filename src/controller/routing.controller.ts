@@ -327,7 +327,7 @@ async function getSearchResults(searchInputText: string | undefined) {
       RETURN node.building_name AS name, score
       ORDER BY score DESC
       LIMIT 5
-      `, {search_input: `"${cleanInput}~"` }
+      `, {search_input: `\\"${cleanInput}~\\"` }
     );
 
     // Logging for the result records, uncomment for debugging lol
