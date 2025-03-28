@@ -340,6 +340,9 @@ async function getSearchResults(searchInputText: string | undefined) {
         score: record.get('score')
       });
     });
+
+    // Logging for the building names + scores
+    // console.log(results);
   } catch (e) { // Erroring out, assuming it is a database problem
     console.log("Unable to query database, error: ", e);
     throw e;
