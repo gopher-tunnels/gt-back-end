@@ -331,7 +331,7 @@ async function getSearchResults(searchInputText: string | undefined) {
     );
 
     // Logging for the result records, uncomment for debugging lol
-    // console.log(result.records)
+    // console.log(queryResult.records)
 
     // Populate the results list with name and scores
     queryResult.records.forEach(record => {
