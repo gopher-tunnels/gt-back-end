@@ -251,7 +251,6 @@ export async function popularRoutes(req: Request, res: Response, next: NextFunct
     }
 
     res.json({ routes: routes });
-    res.status(200).send("Success in finding route")
 
   } catch (e) {
     console.error("popularRoutes failed: ", e);
