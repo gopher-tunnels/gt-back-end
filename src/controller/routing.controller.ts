@@ -199,7 +199,6 @@ export async function popular(req: Request, res: Response, next: NextFunction) {
 
     const popularBuildings = records.map(record => ({
       buildingName: record.get("building_name"),
-      visits: record.get("visits")
     }))
 
     res.json(popularBuildings);
@@ -221,29 +220,3 @@ export function searchBar(req: Request, res: Response) {
 function getPointDistance(x1: number, y1: number, x2: number, y2: number){
   return Math.sqrt(Math.pow((x2-x1), 2) + Math.pow((y2-y1), 2));
 }
-
-/**
-
-Retrieves all building nodes that can be connected to the target building node.
-@param targetBuilding - The name of the target building.
-@returns an array of connected building nodes.
-*/
-/*
-async function connectedBuildings(targetBuilding:string): Promise<Node[]>{  
-  try{
-    const { records, summary } = await driver.executeQuery(`
-        MATCH (n: Node {building_name: $targetBuiding, type: "building_node"})-[*1..]-(connected)
-        WHERE connected.type="building_node"
-        RETURN connected
-      `,{ targetBuilding: targetBuilding },
-      { routing: 'READ', database: "neo4j" });
-    
-    result.records.forEach(record=>{
-      res.push(record.get("connected"))
-    }
-  )
-  } catch (error: any ) {
-    console.log("error finding connected buildings.")
-  }
-  return res;
-}*/

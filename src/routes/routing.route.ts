@@ -11,12 +11,13 @@ const router = express.Router();
  *     description: some description
 */
 router.get('/route', route);
+
 /** 
  * @swagger
  * /popular:
  *   get:
  *     summary: some summary
- *     description: some description
+ *     description: Returns the top 5 popular destinations from a single start location. Sorted by popularity. Highest is first
 */
 router.get('/popular', popular);
 
@@ -27,7 +28,6 @@ router.get('/popular', popular);
  *     summary: some summary
  *     description: some description
 */
-
 router.get('/search', searchBar);
 
 /** 

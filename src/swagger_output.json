@@ -47,13 +47,74 @@
         "responses": {
           "default": {
             "description": ""
+          },
+          "200": {
+            "description": "Returns a complete route from the user's location to the target building, including total distance and step-by-step path nodes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "route": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "buildingName": {
+                            "type": "string",
+                            "description": "The name of the building, if the node is part of one."
+                          },
+                          "latitude": {
+                            "type": "number",
+                            "format": "float",
+                            "description": "Latitude coordinate of the node."
+                          },
+                          "longitude": {
+                            "type": "number",
+                            "format": "float",
+                            "description": "Longitude coordinate of the node."
+                          },
+                          "floor": {
+                            "type": "string",
+                            "description": "Floor label of the node, if available."
+                          },
+                          "nodeType": {
+                            "type": "string",
+                            "description": "The type of node, such as 'building_node', 'path', or 'elevator'."
+                          }
+                        },
+                        "required": ["latitude", "longitude", "nodeType"]
+                      }
+                    },
+                    "totalDistance": {
+                      "type": "number",
+                      "format": "float",
+                      "description": "Total distance of the computed route in meters."
+                    }
+                  },
+                  "required": ["route", "totalDistance"]
+                },
+                "example": {
+                  "route": [
+                    {
+                      "buildingName": "Smith Hall",
+                      "latitude": 44.974469519336964,
+                      "longitude": -93.23601030905132,
+                      "floor": "SB",
+                      "nodeType": "building_node"
+                    }
+                  ],
+                  "totalDistance": 563.55
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/routing/popular": {
       "get": {
-        "description": "Finds the top 5 most popular destinations from a single start location. Sorted by popularity. Highest is first",
+        "description": "Returns the top 5 most popular destinations from a single start location. Sorted by popularity. Highest is first",
         "responses": {
           "default": {
             "description": ""
