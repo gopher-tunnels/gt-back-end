@@ -1,11 +1,5 @@
 import express from 'express';
-import {
-  buildingRouting,
-  popularRoutes,
-  buildingSearch,
-  userLocationRoute,
-  getAllBuildings,
-} from '../controller/routing.controller';
+import { route, popular, buildingSearch, buildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
@@ -15,16 +9,17 @@ const router = express.Router();
  *   get:
  *     summary: returns a route from a start location to a destination
  *     description: some description
- */
-router.get('/route', buildingRouting);
-/**
+*/
+router.get('/route', route);
+
+/** 
  * @swagger
  * /popular:
  *   get:
  *     summary: some summary
- *     description: some description
- */
-router.get('/popular', popularRoutes);
+ *     description: Returns the top 5 popular destinations from a single start location. Sorted by popularity. Highest is first
+*/
+router.get('/popular', popular);
 
 /**
  * @swagger
@@ -32,17 +27,7 @@ router.get('/popular', popularRoutes);
  *   get:
  *     summary: some summary
  *     description: some description
- */
-router.get('/userlocation', userLocationRoute);
-
-/**
- * @swagger
- * /popular:
- *   get:
- *     summary: some summary
- *     description: some description
- */
-
+*/
 router.get('/search', buildingSearch);
 
 /**
@@ -51,7 +36,7 @@ router.get('/search', buildingSearch);
  *   get:
  *     summary: returns an array of all building nodes in neo4j.
  *     description: some description
- */
-router.get('/buildings', getAllBuildings);
+*/
+router.get('/buildings', buildings);
 
 export default router;

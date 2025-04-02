@@ -28,11 +28,8 @@ process.on("SIGINT", async () => {
 // for testing
 // starts app regardless of db connection.
 verifyConnection()
-  .catch(err => {
-    console.error("\nCould not connect to Neo4j. Continuing without connection");
-  })
   .finally(() => {
     app.listen(port, () => {
-      console.log(`Server running on http://localhost:${port}`);
+      console.log(`\nServer running on http://localhost:${port}\n`);
     });
   });
