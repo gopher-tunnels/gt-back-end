@@ -53,21 +53,23 @@
     },
     "/api/routing/popular": {
       "get": {
-        "description": "Finds the top 5 most popular destinations from a single start location",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "name",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "Name of start location"
-          }
-        ],
+        "description": "Finds the top 5 most popular destinations from a single start location. Sorted by popularity. Highest is first",
         "responses": {
           "default": {
             "description": ""
+          },
+          "200": {
+            "description": "Returns an array of all buildings ordered based on visits from highest first to lowest last",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
           }
         }
       }

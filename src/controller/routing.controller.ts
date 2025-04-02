@@ -137,6 +137,15 @@ export async function route(req: Request, res: Response, next: NextFunction) {
       totalDistance: weight
     };
 
+    // May need to move this to its own transaction
+    // Just so a route is still returned if it cant write for some reason.
+    await session.executeWrite(async tx => {
+      await tx.run(`
+        MATCH (b:Building {building_name: $name})
+        SET b.visits = b.visits + 1
+      `, { name: targetBuilding });
+    });
+
     res.json(result);
   } catch(err: any) {
     console.log("Error finding Route", err)
@@ -174,31 +183,29 @@ export async function buildings(req: Request, res: Response, next: NextFunction)
   }
 }
 
-// gets top 5 popular routes
-export async function popularRoutes(req: Request, res: Response, next: NextFunction) {
+/**
+ * Retrieves the five most popular buildings based on visit counts.
+ *
+ * @returns An array of up to five building names, ordered by popularity.
+ */
+export async function popular(req: Request, res: Response, next: NextFunction) {
   try {
     let { records, summary } = await driver.executeQuery(`
-      MATCH (a)-[b:ROUTED_TO]->(c)
-      RETURN a.name AS start, c.name AS destination, b.visits AS visits, b.path AS path
+      MATCH (b:Building)
+      RETURN b.building_name AS building_name, b.visits AS visits
       ORDER BY visits DESC
       LIMIT 5
-    `);
+    `, {}, { routing: 'READ', database: "neo4j" });
 
-    const routes: any = [];
+    const popularBuildings = records.map(record => ({
+      buildingName: record.get("building_name"),
+      visits: record.get("visits")
+    }))
 
-    for (const record of records) {
-      const route: any = {};
-      for (const field of record.keys) {
-        field == "visits" ? route[field] = record.get(field).low : route[field] = record.get(field);
-      }
-      routes.push(route);
-    }
-
-    res.json({ routes: routes });
-
+    res.json(popularBuildings);
   } catch (err) {
     console.error("popularRoutes failed: ", err);
-    res.status(500).send("Failed to query database.");
+    res.status(500).send("Failed to find popular routes.");
   }
 }
 

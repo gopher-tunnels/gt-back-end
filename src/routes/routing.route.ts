@@ -1,5 +1,5 @@
 import express from 'express';
-import { route, popularRoutes, searchBar, buildings } from '../controller/routing.controller';
+import { route, popular, searchBar, buildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
@@ -18,7 +18,7 @@ router.get('/route', route);
  *     summary: some summary
  *     description: some description
 */
-router.get('/popular', popularRoutes);
+router.get('/popular', popular);
 
 /** 
  * @swagger
