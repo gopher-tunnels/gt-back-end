@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import { findDir } from './utils/directions'
+import { findDir } from './utils/directions';
 import { driver } from './db';
 import {Neo4jError, Node, Path, PathSegment} from "neo4j-driver"
+import { Vertex } from '../types/db';
+import { Unpromisify } from '../utils/types';
 
 interface PathNode {
   buildingName: string;
@@ -158,7 +160,7 @@ export async function route(req: Request, res: Response, next: NextFunction) {
 
 /**
  * Retrieves all building nodes from the database.
- * 
+ *
  * @returns An array of all building nodes with building_name, visits, x, and y.
  */
 export async function buildings(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -208,15 +210,126 @@ export async function popular(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-// could be improved with a fuzzy find or some sorting
-export function searchBar(req: Request, res: Response) {
-  // TODO: rewrite using db rather than BUILDINGS object
-  // let input = req.query.input?.toString().toLowerCase();
-  // const matches = BUILDINGS.filter(building => building.name.toLowerCase().includes(input)).slice(0, 5)
-  // res.json(matches)
+/**
+ * GET /search
+ * Retrieves a list of the closest matching buildings
+ *
+ * @param req - The request containing the search input from the user.
+ * @param res - The response the server will send back
+ * @returns res.json() -> An ordered list of buildings based on % Match to the search input
+ */
+export async function buildingSearch(req: Request, res: Response) {
+  try {
+    // Retrieve the input string from the request
+    const input = req.query.input?.toString().trim();
+
+    // If the input doesn't exist, then return empty array
+    if (!input) {
+      return res.json([]);
+    }
+
+    // Send a query to the database for the search results with given input
+    const searchResults = await getSearchResults(input);
+
+    // Extract just the node info
+    const matches = searchResults.map((result) =>
+      typeof result === 'string' ? result : result.node,
+    );
+
+    // Send all matches with 200 status code
+    res.status(200).json(matches);
+  } catch (e: any) {
+    // Catching any error, if we want to specialize we could make cases for particular error codes
+    // Logging, I would keep this here for debugging purposes
+    console.log('Search Error: ', e);
+
+    // Currently I'm assuming that this error will be concerning the database so I'm throwing a 503
+    res.status(503).json({
+      error: 'Error while querying the database',
+      details: e.message,
+    });
+  }
 }
 
-// returns Euclidien distance between two geopositions
-function getPointDistance(x1: number, y1: number, x2: number, y2: number){
-  return Math.sqrt(Math.pow((x2-x1), 2) + Math.pow((y2-y1), 2));
+/**
+ * Retrieves the closest matching building name based on the search input.
+ *
+ * @param searchInputText - The partial search input from the user.
+ * @returns An ordered list of buildings based on % Match to the search input
+ */
+async function getSearchResults(searchInputText: string | undefined): Promise<
+  {
+    node: Vertex;
+    score: number;
+  }[]
+> {
+  // Check if the search input text is valid, if not, return an empty list
+  if (!searchInputText) return [];
+
+  // Aggregating query results into a list of a dict containing name and score
+  const results = [] as Unpromisify<ReturnType<typeof getSearchResults>>;
+
+  // Logging for debug purposes
+  console.log('Search input text:', searchInputText);
+
+  try {
+    // Clean the input text to prevent injection
+    const cleanInput = searchInputText?.replace(/"/g, '\\"');
+
+    // Querying neo4j using fuzzy search, obtaining only top 5 results (automatically desc, but I'll make sure)
+    const queryResult = await driver.executeQuery(
+      `
+      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input) 
+      YIELD node, score 
+      RETURN node, score
+      ORDER BY score DESC
+      LIMIT 5
+      `,
+      { search_input: `\\"${cleanInput}~\\"` },
+    );
+
+    // Logging for the result records, uncomment for debugging lol
+    // console.log(queryResult.records)
+
+    // Populate the results list with node info and scores
+    queryResult.records.forEach((record) => {
+      results.push({
+        node: record.get('node'),
+        score: record.get('score'),
+      });
+    });
+
+    // Logging for the building nodes + scores
+    // console.log(results);
+  } catch (e) {
+    // Erroring out, assuming it is a database problem
+    console.log('Error querying database: ', e);
+    throw e;
+  }
+  return results;
 }
+
+// returns Haversine distance between two geopositions
+function getPointDistance(x1: number, y1: number, x2: number, y2: number): number {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = toRad(y2 - y1);
+  const dLon = toRad(x2 - x1);
+  const lat1 = toRad(y1);
+  const lat2 = toRad(y2);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
+}
+
+// close database connection when app is exited
+process.on('exit', async (code) => {
+  await driver?.close();
+});

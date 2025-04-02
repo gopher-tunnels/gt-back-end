@@ -1,9 +1,9 @@
 import express from 'express';
-import { route, popular, searchBar, buildings } from '../controller/routing.controller';
+import { route, popular, buildingSearch, buildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
-/** 
+/**
  * @swagger
  * /route:
  *   get:
@@ -21,16 +21,16 @@ router.get('/route', route);
 */
 router.get('/popular', popular);
 
-/** 
+/**
  * @swagger
  * /popular:
  *   get:
  *     summary: some summary
  *     description: some description
 */
-router.get('/search', searchBar);
+router.get('/search', buildingSearch);
 
-/** 
+/**
  * @swagger
  * /buildings:
  *   get:
