@@ -5,7 +5,6 @@ import { Neo4jError, Node, Path, PathSegment } from "neo4j-driver";
 import { Vertex } from "../types/db";
 import { Unpromisify } from "../utils/types";
 import { getCandidateStartNodes } from "./utils/closestNodes";
-import { haversineDistance } from "./utils/haversine";
 import { BuildingNode, RouteStep } from "../types/nodes";
 
 interface RouteResult {
@@ -14,7 +13,12 @@ interface RouteResult {
 }
 
 /**
+ * POST /route
  * Computes and returns the full navigable route from a given start location to a target building.
+ *
+ * TODO:
+ *  - Handle Edge Cases: Close to destination, same coordinates as destination*, Not on campus, no buildings in front.
+ *  - Figure out if update visits write query should be in a new transaction.
  *
  * @param coords - The starting location as longitude, latitude coordinates.
  * @param targetDestination - The name of the target building.
@@ -50,7 +54,7 @@ export async function getRoute(
         AND connected <> start
         RETURN DISTINCT connected.building_name AS name, connected.longitude AS longitude, connected.latitude AS latitude
         `,
-          { targetBuilding } //check
+          { targetBuilding }
         );
       }
     );
@@ -69,7 +73,7 @@ export async function getRoute(
       targetBuilding
     );
 
-    const startNode = candidateStartNodes[0] // Grab closest candidate node for now
+    const startNode = candidateStartNodes[0]; // Grab closest candidate node for now
 
     const { records: pathRecords } = await session.executeRead(async (tx) => {
       return await tx.run(
@@ -85,7 +89,7 @@ export async function getRoute(
         YIELD path, weight
         RETURN path, weight
       `,
-        { startName: start.buildingName, endName: targetBuilding }
+        { startName: startNode.buildingName, endName: targetBuilding }
       );
     });
 
@@ -119,8 +123,7 @@ export async function getRoute(
       totalDistance: weight,
     };
 
-    // May need to move this to its own transaction
-    // Just so a route is still returned if it cant write for some reason.
+    // Move to a new transaction incase it can't write for some reason.
     await session.executeWrite(async (tx) => {
       await tx.run(
         `
@@ -141,6 +144,7 @@ export async function getRoute(
 }
 
 /**
+ * GET /buildings
  * Retrieves all building nodes from the database.
  *
  * @returns An array of all building nodes with building_name, visits, x, and y.
@@ -176,8 +180,13 @@ export async function getAllBuildings(
 }
 
 /**
+ * GET /popular
  * Retrieves the five most popular buildings based on visit counts.
  *
+ * TODO:
+ *  - Add protection against visits update spam in getRoute.
+ *  - What if we just returned the popular buildings for the user? Suggestion
+ * 
  * @returns An array of up to five building names, ordered by popularity.
  */
 export async function getPopularBuildings(
