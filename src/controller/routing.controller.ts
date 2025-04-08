@@ -1,14 +1,12 @@
 import { Request, Response, NextFunction } from "express";
-import { findDir } from "./utils/directions";
 import { driver } from "./db";
 import { Neo4jError, Node, Path, PathSegment } from "neo4j-driver";
-import { Vertex } from "../types/db";
 import { Unpromisify } from "../utils/types";
 import { getCandidateStartNodes } from "./utils/closestNodes";
 import { BuildingNode, RouteStep } from "../types/nodes";
 
 interface RouteResult {
-  route: RouteStep[]; // In order of the path.
+  steps: RouteStep[]; // In order of the path.
   totalDistance: number;
 }
 
@@ -108,7 +106,7 @@ export async function getRoute(
       ...path.segments.map((s: PathSegment) => s.end),
     ];
 
-    const route: RouteStep[] = nodes.map(
+    const steps: RouteStep[] = nodes.map(
       (node: Node): RouteStep => ({
         buildingName: node.properties.building_name,
         latitude: node.properties.latitude,
@@ -119,7 +117,7 @@ export async function getRoute(
     );
 
     const result: RouteResult = {
-      route,
+      steps,
       totalDistance: weight,
     };
 
@@ -266,7 +264,7 @@ export async function searchBuildings(req: Request, res: Response) {
  */
 async function getSearchResults(searchInputText: string | undefined): Promise<
   {
-    node: Vertex;
+    node: any;
     score: number;
   }[]
 > {
