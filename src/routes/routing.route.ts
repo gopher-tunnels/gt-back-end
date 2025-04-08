@@ -1,5 +1,5 @@
 import express from 'express';
-import { route, popular, buildingSearch, buildings } from '../controller/routing.controller';
+import { getRoute, getPopularBuildings, searchBuildings, getAllBuildings } from '../controller/routing.controller';
 
 const router = express.Router();
 
@@ -10,7 +10,7 @@ const router = express.Router();
  *     summary: returns a route from a start location to a destination
  *     description: some description
 */
-router.get('/route', route);
+router.get('/route', getRoute);
 
 /** 
  * @swagger
@@ -19,7 +19,7 @@ router.get('/route', route);
  *     summary: some summary
  *     description: Returns the top 5 popular destinations from a single start location. Sorted by popularity. Highest is first
 */
-router.get('/popular', popular);
+router.get('/popular', getPopularBuildings);
 
 /**
  * @swagger
@@ -28,7 +28,7 @@ router.get('/popular', popular);
  *     summary: some summary
  *     description: some description
 */
-router.get('/search', buildingSearch);
+router.get('/search', searchBuildings);
 
 /**
  * @swagger
@@ -37,6 +37,6 @@ router.get('/search', buildingSearch);
  *     summary: returns an array of all building nodes in neo4j.
  *     description: some description
 */
-router.get('/buildings', buildings);
+router.get('/buildings', getAllBuildings);
 
 export default router;
