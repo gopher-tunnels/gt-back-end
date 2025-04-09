@@ -126,7 +126,9 @@ export async function getRoute(
       await tx.run(
         `
         MATCH (b:Building {building_name: $name})
-        SET b.visits = b.visits + 1
+        WHERE datetime().epochSeconds - coalesce(b.lastUpdated.epochSeconds, 0) >= 60
+        SET b.visits = b.visits + 1,
+        b.lastUpdated = datetime()
       `,
         { name: targetBuilding }
       );
