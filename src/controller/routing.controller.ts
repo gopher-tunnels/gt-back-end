@@ -5,9 +5,12 @@ import { Unpromisify } from "../utils/types";
 import { getCandidateStartNodes } from "./utils/closestNodes";
 import { BuildingNode, RouteStep } from "../types/nodes";
 
+// the units of the distance is meters
+//the units of the time is seconds
 interface RouteResult {
   steps: RouteStep[]; // In order of the path.
   totalDistance: number;
+  totalTime:number;
 }
 
 /**
@@ -115,10 +118,11 @@ export async function getRoute(
         nodeType: node.properties.node_type,
       })
     );
-
+    
     const result: RouteResult = {
       steps,
       totalDistance: weight,
+      totalTime: Math.round(weight/1.4),
     };
 
     // Move to a new transaction incase it can't write for some reason.
