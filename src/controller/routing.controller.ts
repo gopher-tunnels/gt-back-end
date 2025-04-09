@@ -101,12 +101,16 @@ export async function getRoute(
 
     const startNode = candidateStartNodes[0]; // Grab closest candidate node for now
     
+    // Get the google maps API key from env variables
     const googleMapsKey = process.env.GOOGLE_MAPS_API_KEY
 
+    // Const google maps url for axios get, lowkey should make a const file but this is ok for MVP
     const googleMapsUrl = `https://maps.googleapis.com/maps/api/directions/json`
 
+    // Initialize an empty array for aggregating steps associated to google maps
     let googleSteps: StepInfo[] = [];
 
+    // Try block for the axios request to google maps, if it fails, just use the neo4j routing
     try {
       const pathToClosestBuildResponse = await axios.get(googleMapsUrl, {
         params: {
@@ -117,7 +121,10 @@ export async function getRoute(
         },
       });
 
+      // Assign reponse data into a variable
       const data = pathToClosestBuildResponse.data;
+
+      // If the data, routes, legs, and steps exist, then we can use the steps from GM as our google steps
       if (
         data.status === "OK" &&
         data.routes &&
@@ -126,10 +133,16 @@ export async function getRoute(
         data.routes[0].legs.length > 0 &&
         data.routes[0].legs[0].steps
       ) {
+        // Extract the google rout from the reponse
         const googleRoute = data.routes[0].legs[0].steps;
-        console.log(googleRoute)
+
+        // Log the route, uncomment for debugging purposes
+        // console.log(googleRoute);
+
+        // Cast the step info into our custom StepInfo type
         googleSteps = extractStepInfoFromResponse(googleRoute);
       } else {
+        // Just need to warn that we have no valid response from google maps because we still want to route with neo4j
         console.warn("Google Maps returned no valid steps or route.");
       }
     } catch (err) {
@@ -169,7 +182,8 @@ export async function getRoute(
       path.start,
       ...path.segments.map((s: PathSegment) => s.end),
     ];
-
+    
+    // Aggregate both Google Map generated step info and Neo4j generated step info together into steps
     const steps: (RouteStep | StepInfo)[] = [
       ...googleSteps,
       ...nodes.map(
@@ -183,6 +197,7 @@ export async function getRoute(
       })
     )];
     
+    // Aggregate steps, total distance, and total time together
     const result: RouteResult = {
       steps,
       totalDistance: weight,
