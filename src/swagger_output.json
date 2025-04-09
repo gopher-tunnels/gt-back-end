@@ -20,7 +20,8 @@
             "in": "query",
             "name": "targetBuilding",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "example": "Ford Hall"
             },
             "required": true,
             "description": "Name of the target building to route to"
@@ -29,7 +30,8 @@
             "in": "query",
             "name": "latitude",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "example": "44.974887074686585"
             },
             "required": true,
             "description": "latitude of the user's location location"
@@ -38,7 +40,8 @@
             "in": "query",
             "name": "longitude",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "example": "-93.2353939947963"
             },
             "required": true,
             "description": "longitude of the user's location location"
