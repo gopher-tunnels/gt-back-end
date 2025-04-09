@@ -10,4 +10,5 @@ export interface BuildingNode extends Coordinates {
 export interface RouteStep extends BuildingNode {
   floor: string; // SB, 0B, 1, 2...
   nodeType: string; // elevator, building_node, or path
+  type: string;
 }
