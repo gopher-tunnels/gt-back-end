@@ -1,4 +1,6 @@
 import express, { Express } from 'express';
+import { driver, verifyConnection } from './controller/db';
+
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
 // import axios from "axios";
@@ -24,6 +26,10 @@ process.on("SIGINT", async () => {
 });
 
 // for testing
-app.listen(port, () => {
-  console.log(`App is listening on ${port}`);
-});
+// starts app regardless of db connection.
+verifyConnection()
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`\nServer running on http://localhost:${port}\n`);
+    });
+  });
