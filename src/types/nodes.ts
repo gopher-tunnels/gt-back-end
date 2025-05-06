@@ -5,7 +5,7 @@ export interface Coordinates {
 
 export interface BuildingNode extends Coordinates {
   buildingName: string;
-  neo4j_id: number;
+  id: number;
 }
 
 export interface RouteStep extends BuildingNode {

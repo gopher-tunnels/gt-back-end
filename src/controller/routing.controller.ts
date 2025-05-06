@@ -73,7 +73,7 @@ export async function getRoute(
           `
           MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
           RETURN 
-            id(start) AS neo4j_id,
+            id(start) AS id,
             start.building_name AS name, 
             start.longitude AS longitude, 
             start.latitude AS latitude
@@ -84,7 +84,7 @@ export async function getRoute(
           MATCH path = (start)-[*1..400]-(connected:Node)
           WHERE connected.node_type = "building_node" AND connected <> start
           RETURN DISTINCT 
-            id(connected) AS neo4j_id,
+            id(connected) AS id,
             connected.building_name AS name, 
             connected.longitude AS longitude, 
             connected.latitude AS latitude
@@ -99,7 +99,7 @@ export async function getRoute(
         buildingName: record.get("name"),
         longitude: record.get("longitude"),
         latitude: record.get("latitude"),
-        neo4j_id: record.get("neo4j_id").toNumber(),
+        id: record.get("id").toNumber(),
       })
     );
 
@@ -201,7 +201,7 @@ export async function getRoute(
         buildingName: node.properties.building_name,
         latitude: node.properties.latitude,
         longitude: node.properties.longitude,
-        neo4j_id: node.identity.toNumber(),
+        id: node.identity.toNumber(),
         floor: node.properties.floor,
         nodeType: node.properties.node_type,
         type: 'GT'
@@ -251,11 +251,11 @@ export async function getAllBuildings(
   try {
     const { records, summary } = await driver.executeQuery(
       `
-    MATCH (b:Building)
-    RETURN  id(b) AS neo4j_id, 
-            b.building_name AS building_name, 
-            b.longitude AS longitude, 
-            b.latitude AS latitude
+      MATCH (b:Building)
+      RETURN  id(b) AS id, 
+              b.building_name AS building_name, 
+              b.longitude AS longitude, 
+              b.latitude AS latitude
     `,
       {},
       { routing: "READ", database: "neo4j" }
@@ -265,7 +265,7 @@ export async function getAllBuildings(
       buildingName: record.get("building_name"),
       longitude: record.get("longitude"),
       latitude: record.get("latitude"),
-      neo4j_id: record.get("neo4j_id").toNumber(),
+      id: record.get("id").toNumber(),
     }));
 
     res.json(buildings);
@@ -294,7 +294,7 @@ export async function getPopularBuildings(
     let { records, summary } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN id(b) as neo4j_id, b.building_name AS building_name, b.visits AS visits, b.id as id
+      RETURN id(b) as id, b.building_name AS building_name, b.visits AS visits, b.id as id
       ORDER BY visits DESC
       LIMIT 5
     `,
@@ -304,7 +304,7 @@ export async function getPopularBuildings(
 
     const popularBuildings = records.map((record) => ({
       buildingName: record.get("building_name"),
-      neo4j_id: record.get("neo4j_id").toNumber()
+      id: record.get("id").toNumber()
     }));
 
     res.json(popularBuildings);
@@ -405,7 +405,7 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
           buildingName: node.properties.building_name,
           latitude: node.properties.latitude,
           longitude: node.properties.longitude,
-          neo4j_id: node.identity.toNumber(),
+          id: node.identity.toNumber(),
         },
         score: score,
       });
