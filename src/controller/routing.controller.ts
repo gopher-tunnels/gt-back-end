@@ -294,17 +294,25 @@ export async function getPopularBuildings(
     let { records, summary } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN id(b) as id, b.building_name AS building_name, b.visits AS visits, b.id as id
+      RETURN 
+        id(b)           AS id,
+        b.building_name AS buildingName,
+        b.visits        AS visits,
+        b.latitude      AS latitude,
+        b.longitude     AS longitude
       ORDER BY visits DESC
       LIMIT 5
-    `,
+      `,
       {},
       { routing: "READ", database: "neo4j" }
     );
 
-    const popularBuildings = records.map((record) => ({
-      buildingName: record.get("building_name"),
-      id: record.get("id").toNumber()
+    const popularBuildings = records.map((r) => ({
+      id: r.get("id").toNumber(),
+      buildingName: r.get("buildingName"),
+      visits: r.get("visits"),
+      latitude: r.get("latitude"),
+      longitude: r.get("longitude"),
     }));
 
     res.json(popularBuildings);
