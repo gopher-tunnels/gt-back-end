@@ -5,6 +5,7 @@ export interface Coordinates {
 
 export interface BuildingNode extends Coordinates {
   buildingName: string;
+  id: number;
 }
 
 export interface RouteStep extends BuildingNode {

@@ -71,15 +71,24 @@ export async function getRoute(
       async (tx) => {
         return await tx.run(
           `
-        MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-        RETURN start.building_name AS name, start.longitude AS longitude, start.latitude AS latitude
-        UNION
-        MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-        MATCH path = (start)-[*1..400]-(connected:Node)
-        WHERE connected.node_type = "building_node"
-        AND connected <> start
-        RETURN DISTINCT connected.building_name AS name, connected.longitude AS longitude, connected.latitude AS latitude
-        `,
+          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
+          RETURN 
+            id(start) AS id,
+            start.building_name AS name, 
+            start.longitude AS longitude, 
+            start.latitude AS latitude
+
+          UNION
+
+          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
+          MATCH path = (start)-[*1..400]-(connected:Node)
+          WHERE connected.node_type = "building_node" AND connected <> start
+          RETURN DISTINCT 
+            id(connected) AS id,
+            connected.building_name AS name, 
+            connected.longitude AS longitude, 
+            connected.latitude AS latitude
+          `,
           { targetBuilding }
         );
       }
@@ -90,6 +99,7 @@ export async function getRoute(
         buildingName: record.get("name"),
         longitude: record.get("longitude"),
         latitude: record.get("latitude"),
+        id: record.get("id").toNumber(),
       })
     );
 
@@ -191,6 +201,7 @@ export async function getRoute(
         buildingName: node.properties.building_name,
         latitude: node.properties.latitude,
         longitude: node.properties.longitude,
+        id: node.identity.toNumber(),
         floor: node.properties.floor,
         nodeType: node.properties.node_type,
         type: 'GT'
@@ -240,10 +251,11 @@ export async function getAllBuildings(
   try {
     const { records, summary } = await driver.executeQuery(
       `
-    MATCH (b:Building)
-    RETURN b.building_name AS building_name, 
-            b.longitude AS longitude, 
-            b.latitude AS latitude
+      MATCH (b:Building)
+      RETURN  id(b) AS id, 
+              b.building_name AS building_name, 
+              b.longitude AS longitude, 
+              b.latitude AS latitude
     `,
       {},
       { routing: "READ", database: "neo4j" }
@@ -253,6 +265,7 @@ export async function getAllBuildings(
       buildingName: record.get("building_name"),
       longitude: record.get("longitude"),
       latitude: record.get("latitude"),
+      id: record.get("id").toNumber(),
     }));
 
     res.json(buildings);
@@ -281,7 +294,7 @@ export async function getPopularBuildings(
     let { records, summary } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN b.building_name AS building_name, b.visits AS visits
+      RETURN id(b) as id, b.building_name AS building_name, b.visits AS visits, b.id as id
       ORDER BY visits DESC
       LIMIT 5
     `,
@@ -291,6 +304,7 @@ export async function getPopularBuildings(
 
     const popularBuildings = records.map((record) => ({
       buildingName: record.get("building_name"),
+      id: record.get("id").toNumber()
     }));
 
     res.json(popularBuildings);
@@ -383,9 +397,17 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
 
     // Populate the results list with node info and scores
     queryResult.records.forEach((record) => {
+      const node = record.get("node") as Node;
+      const score = record.get("score");
+    
       results.push({
-        node: record.get("node"),
-        score: record.get("score"),
+        node: {
+          buildingName: node.properties.building_name,
+          latitude: node.properties.latitude,
+          longitude: node.properties.longitude,
+          id: node.identity.toNumber(),
+        },
+        score: score,
       });
     });
 
