@@ -86,14 +86,15 @@ export async function requestSecurityMiddleware(
   }
 
   const rawBody = req.rawBody ?? '';
-  const canonical = [
-    req.method.toUpperCase(),
-    normalizePathWithQuery(req.originalUrl || req.url),
-    rawBody,
+  const pathVariants = buildPathVariants(req.originalUrl || req.url);
+  const canonicalCandidates = buildCanonicalCandidates({
+    method: req.method,
+    paths: pathVariants,
+    body: rawBody,
     deviceId,
     timestamp,
     nonce,
-  ].join('\n');
+  });
 
   let signatureBuffer: Buffer;
   try {
@@ -117,12 +118,15 @@ export async function requestSecurityMiddleware(
     return;
   }
   const signatureValid = secrets.some((secret) =>
-    constantTimeEquals(signatureBuffer, computeHmac(secret, canonical)),
+    canonicalCandidates.some((canonical) =>
+      constantTimeEquals(signatureBuffer, computeHmac(secret, canonical)),
+    ),
   );
 
   if (!signatureValid) {
     reject(401, 'Bad signature', 'signature-mismatch', {
-      canonicalHash: hashCanonical(canonical),
+      canonicalHashes: canonicalCandidates.map(hashCanonical),
+      canonicalPaths: pathVariants,
     });
     return;
   }
@@ -245,4 +249,67 @@ function logSecurityRejection(
 
 function hashCanonical(canonical: string): string {
   return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+function buildPathVariants(pathAndQuery: string): string[] {
+  const primary = normalizePathWithQuery(pathAndQuery);
+  const variants = new Set<string>([primary]);
+  const normalized = normalizeQueryEncoding(primary);
+  variants.add(normalized);
+  return Array.from(variants);
+}
+
+function normalizeQueryEncoding(pathAndQuery: string): string {
+  const questionMarkIndex = pathAndQuery.indexOf('?');
+  if (questionMarkIndex === -1) {
+    return pathAndQuery;
+  }
+
+  const pathname = pathAndQuery.slice(0, questionMarkIndex);
+  const queryString = pathAndQuery.slice(questionMarkIndex + 1);
+
+  if (!queryString) {
+    return pathname;
+  }
+
+  const parts = queryString.split('&');
+  const normalizedParts = parts.map((part) => {
+    if (!part) return '';
+    const equalIndex = part.indexOf('=');
+    if (equalIndex === -1) {
+      return encodeComponent(decodeComponent(part));
+    }
+    const key = part.slice(0, equalIndex);
+    const value = part.slice(equalIndex + 1);
+    return `${encodeComponent(decodeComponent(key))}=${encodeComponent(
+      decodeComponent(value),
+    )}`;
+  });
+
+  const serialized = normalizedParts.filter((p) => p.length > 0).join('&');
+  return serialized ? `${pathname}?${serialized}` : pathname;
+}
+
+function decodeComponent(component: string): string {
+  return decodeURIComponent(component.replace(/\+/g, ' '));
+}
+
+function encodeComponent(component: string): string {
+  return encodeURIComponent(component);
+}
+
+function buildCanonicalCandidates(params: {
+  method: string;
+  paths: string[];
+  body: string;
+  deviceId: string;
+  timestamp: string;
+  nonce: string;
+}): string[] {
+  const method = params.method.toUpperCase();
+  const uniquePaths = Array.from(new Set(params.paths));
+
+  return uniquePaths.map((path) =>
+    [method, path, params.body, params.deviceId, params.timestamp, params.nonce].join('\n'),
+  );
 }
