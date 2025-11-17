@@ -3,10 +3,20 @@ import { driver } from './db';
 import { Neo4jError, Node, Path, PathSegment } from 'neo4j-driver';
 import { Unpromisify } from '../utils/types';
 import { getCandidateStartNodes } from './utils/closestNodes';
-import { BuildingNode, RouteStep } from '../types/nodes';
+import { haversineDistance } from './utils/haversine';
+import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { getInstruction } from '../utils/routing/getInstruction';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { getMapboxWalkingDirections } from '../services/mapbox';
+import {
+  fetchConnectedBuildingNodes,
+  fetchAllBuildingNodes,
+  getDisconnectedBuildingCoords,
+} from '../services/buildings';
+import { astar } from '../services/astar';
+import { incrementBuildingVisit } from '../services/visits';
+import { isDisconnectedBuilding } from '../services/isDisconnected';
+
 
 // the units of the distance is meters
 //the units of the time is seconds
@@ -20,13 +30,14 @@ interface RouteResult {
  * POST /route
  * Computes and returns the full navigable route from a given start location to a target building.
  *
- * TODO:
- *  - Handle Edge Cases: Close to destination, same coordinates as destination*, Not on campus, no buildings in front.
- *  - Figure out if update visits write query should be in a new transaction.
+ * Normal case:
+ *  - Mapbox: user -> GT start node
+ *  - GT (A*): start node -> target building
  *
- * @param coords - The starting location as longitude, latitude coordinates.
- * @param targetDestination - The name of the target building.
- * @returns A array of route objects that the frontend can display.
+ * Disconnected_Building case:
+ *  - Mapbox: user -> GT start node
+ *  - GT (A*): start node -> closest building_node to the disconnected building
+ *  - Mapbox: GT end node -> disconnected building
  */
 export async function getRoute(
   req: Request,
@@ -36,187 +47,271 @@ export async function getRoute(
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
-  const userLocation = { latitude, longitude };
+  const userLocation: Coordinates = { latitude, longitude };
 
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
     console.error('Missing target building or coordinates');
     res.status(400).send('Invalid query parameters');
+    return;
   }
 
   const session = driver.session({ database: 'neo4j' });
+
   try {
-    const { records: buildingRecords } = await session.executeRead(
-      async (tx) => {
-        return await tx.run(
-          `
-          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-          RETURN 
-            id(start) AS id,
-            start.building_name AS name, 
-            start.longitude AS longitude, 
-            start.latitude AS latitude
+    // --------------------------------------------------
+    // 1. Determine if target is a Disconnected_Building
+    // --------------------------------------------------
+    const disconnected = await isDisconnectedBuilding(session, targetBuilding);
 
-          UNION
+    let routingTargetBuilding = targetBuilding; // building_name we actually route GT to
+    let disconnectedCoords: Coordinates | null = null;
+    let buildingNodesForRouting: BuildingNode[] = [];
 
-          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-          MATCH path = (start)-[*1..400]-(connected:Node)
-          WHERE connected.node_type = "building_node" AND connected <> start
-          RETURN DISTINCT 
-            id(connected) AS id,
-            connected.building_name AS name, 
-            connected.longitude AS longitude, 
-            connected.latitude AS latitude
-          `,
-          { targetBuilding },
+    if (disconnected) {
+      // Disconnected target: find its coordinates
+      disconnectedCoords = await getDisconnectedBuildingCoords(
+        session,
+        targetBuilding,
+      );
+      if (!disconnectedCoords) {
+        console.error(
+          'Disconnected building has no latitude/longitude:',
+          targetBuilding,
         );
-      },
-    );
+        res.status(404).send('Target building not found');
+        return;
+      }
 
-    const connectedBuildings: BuildingNode[] = buildingRecords.map(
-      (record) => ({
-        buildingName: record.get('name'),
-        longitude: record.get('longitude'),
-        latitude: record.get('latitude'),
-        id: record.get('id').toNumber(),
-      }),
-    );
+      // Use all building_node nodes on campus as potential GT endpoints
+      const allBuildingNodes = await fetchAllBuildingNodes(session);
+      if (!allBuildingNodes.length) {
+        console.error('No building nodes available for routing');
+        res.status(404).send('No path found');
+        return;
+      }
 
+      // Choose GT end building: closest building_node to the disconnected building
+      let best = allBuildingNodes[0];
+      let bestDist = haversineDistance(best, disconnectedCoords);
+
+      for (let i = 1; i < allBuildingNodes.length; i++) {
+        const cand = allBuildingNodes[i];
+        const d = haversineDistance(cand, disconnectedCoords);
+        if (d < bestDist) {
+          best = cand;
+          bestDist = d;
+        }
+      }
+
+      routingTargetBuilding = best.buildingName;
+      buildingNodesForRouting = allBuildingNodes;
+    } else {
+      // Normal case: use only building nodes connected to the target building
+      buildingNodesForRouting = await fetchConnectedBuildingNodes(
+        session,
+        targetBuilding,
+      );
+
+      if (!buildingNodesForRouting.length) {
+        console.error(
+          'No connected building nodes found for target',
+          targetBuilding,
+        );
+        res.status(404).send('No path found');
+        return;
+      }
+    }
+
+    // --------------------------------------------------
+    // 2. Choose GT start node from userLocation
+    // --------------------------------------------------
     const candidateStartNodes = getCandidateStartNodes(
-      connectedBuildings,
+      buildingNodesForRouting,
       userLocation,
-      targetBuilding,
+      routingTargetBuilding,
     );
 
-    const startNode = candidateStartNodes[0]; // Grab closest candidate node for now
-    // Initialize an empty array for aggregating steps associated to mapbox
-    let mapboxSteps: { coords: [number, number]; instruction?: string }[] = [];
-    let mapboxDuration = 0;
-    let mapboxDistance = 0;
-    // Try block for the external direction services; if they fail, keep routing via Neo4j only
+    if (!candidateStartNodes.length) {
+      console.error('No candidate start nodes found for user location');
+      res.status(404).send('No path found');
+      return;
+    }
+
+    const startNode = candidateStartNodes[0]; // closest & best aligned node
+
+    // --------------------------------------------------
+    // 3. Mapbox segment 1: user -> GT start
+    // --------------------------------------------------
+    let mapboxSteps1Raw: { coords: [number, number]; instruction?: string }[] =
+      [];
+    let mapboxDistance1 = 0;
+    let mapboxDuration1 = 0;
+
     try {
       const mapboxDirections = await getMapboxWalkingDirections(
         { latitude, longitude },
         { latitude: startNode.latitude, longitude: startNode.longitude },
       );
 
-      mapboxSteps = [
+      const leg = mapboxDirections.routes[0].legs[0];
+
+      mapboxSteps1Raw = [
         {
-          coords: mapboxDirections.routes[0].legs[0].steps[0]?.geometry
-            ?.coordinates?.[0] || [0, 0],
+          coords: leg.steps[0]?.geometry?.coordinates?.[0] || [0, 0],
         },
-        ...mapboxDirections.routes[0].legs[0].steps
-          .slice(0, -1)
-          .map((step: any) => ({
-            coords: step?.geometry?.coordinates?.[1] || [0, 0],
-            instruction: step?.maneuver?.instruction,
-          })),
+        ...leg.steps.slice(0, -1).map((step: any) => ({
+          coords: step?.geometry?.coordinates?.[1] || [0, 0],
+          instruction: step?.maneuver?.instruction,
+        })),
       ];
-      mapboxDistance = mapboxDirections.routes[0].distance;
-      mapboxDuration = mapboxDirections.routes[0].duration;
+
+      mapboxDistance1 = mapboxDirections.routes[0].distance;
+      mapboxDuration1 = mapboxDirections.routes[0].duration;
     } catch (err) {
-      console.error('Mapbox Directions API failed:', err);
-      // Proceed with Neo4j-only route if Mapbox fails
+      console.error('Mapbox Directions API (segment 1) failed:', err);
+      // Still continue with GT-only routing if needed
     }
 
-    const { records: pathRecords } = await session.executeRead(async (tx) => {
-      return await tx.run(
-        `
-        MATCH (start:Node {building_name: $startName, node_type: 'building_node'})
-        WITH start
-        MATCH (end:Node {building_name: $endName, node_type: 'building_node'})
-        CALL apoc.algo.aStar(
-          start, end,
-          'CONNECTED_TO',
-          'distance', 'latitude', 'longitude'
-        )
-        YIELD path, weight
-        RETURN path, weight
-      `,
-        { startName: startNode.buildingName, endName: targetBuilding },
-      );
-    });
+    const mapboxSteps1: RouteStep[] = mapboxSteps1Raw.map(
+      ({ coords }, index) => ({
+        buildingName: '',
+        latitude: coords[1],
+        longitude: coords[0],
+        id: JSON.stringify(coords),
+        instruction:
+          index !== mapboxSteps1Raw.length - 1
+            ? processMapboxInstruction(
+                mapboxSteps1Raw[index + 1]?.instruction || '',
+              )
+            : {
+                type: 'final',
+                label: 'Continue through the GopherWay',
+              },
+        floor: '0',
+        nodeType: 'sidewalk',
+        type: 'mapbox',
+      }),
+    );
 
-    const pathRecord = pathRecords[0];
-    if (!pathRecord) {
+    // --------------------------------------------------
+    // 4. GT segment: A* from startNode -> routingTargetBuilding
+    // --------------------------------------------------
+    const astarResult = await astar(
+      session,
+      startNode.buildingName,
+      routingTargetBuilding,
+    );
+
+    if (!astarResult) {
+      console.error('A* could not find a path');
       res.status(404).send('No path found');
       return;
     }
 
-    const path = pathRecord.get('path') as Path;
-    const weight = pathRecord.get('weight') as number;
+    const { steps: gtSteps, weight } = astarResult;
 
-    // Get all nodes in order: [start, segment1.end, segment2.end, ...]
-    const nodes: Node[] = [
-      path.start,
-      ...path.segments.map((s: PathSegment) => s.end),
-    ];
+    // --------------------------------------------------
+    // 5. Optional Mapbox segment 2: GT end -> disconnected building
+    // --------------------------------------------------
+    let mapboxSteps2: RouteStep[] = [];
+    let mapboxDistance2 = 0;
+    let mapboxDuration2 = 0;
 
-    // Aggregate both Mapbox-generated step info and Neo4j-generated step info together into steps
-    const steps: { type: string; steps: RouteStep[] }[] = [
-      {
-        type: 'mapbox',
-        steps: mapboxSteps.map(({ coords, instruction }, index) => ({
+    if (disconnected && disconnectedCoords && gtSteps.length > 0) {
+      const lastGtStep = gtSteps[gtSteps.length - 1];
+
+      try {
+        const mapboxDirections2 = await getMapboxWalkingDirections(
+          {
+            latitude: lastGtStep.latitude,
+            longitude: lastGtStep.longitude,
+          },
+          {
+            latitude: disconnectedCoords.latitude,
+            longitude: disconnectedCoords.longitude,
+          },
+        );
+
+        const leg2 = mapboxDirections2.routes[0].legs[0];
+
+        const rawSteps2 = [
+          {
+            coords: leg2.steps[0]?.geometry?.coordinates?.[0] || [0, 0],
+          },
+          ...leg2.steps.slice(0, -1).map((step: any) => ({
+            coords: step?.geometry?.coordinates?.[1] || [0, 0],
+            instruction: step?.maneuver?.instruction,
+          })),
+        ];
+
+        mapboxSteps2 = rawSteps2.map(({ coords }, index) => ({
           buildingName: '',
           latitude: coords[1],
           longitude: coords[0],
           id: JSON.stringify(coords),
           instruction:
-            index != mapboxSteps.length - 1
+            index !== rawSteps2.length - 1
               ? processMapboxInstruction(
-                  mapboxSteps[index + 1]?.instruction || '',
+                  rawSteps2[index + 1]?.instruction || '',
                 )
               : {
                   type: 'final',
-                  label: 'Continue through the GopherWay',
+                  label: `Walk to ${targetBuilding}`,
                 },
           floor: '0',
           nodeType: 'sidewalk',
           type: 'mapbox',
-        })),
+        }));
+
+        mapboxDistance2 = mapboxDirections2.routes[0].distance;
+        mapboxDuration2 = mapboxDirections2.routes[0].duration;
+      } catch (err) {
+        console.error('Mapbox Directions API (segment 2) failed:', err);
+      }
+    }
+
+    // --------------------------------------------------
+    // 6. Aggregate steps: mapbox1 -> GT -> (optional) mapbox2
+    // --------------------------------------------------
+    const steps: { type: string; steps: RouteStep[] }[] = [
+      {
+        type: 'mapbox',
+        steps: mapboxSteps1,
       },
       {
         type: 'GT',
-        steps: nodes.map(
-          (node: Node, index): RouteStep => ({
-            instruction: getInstruction(node, index, nodes),
-            buildingName: node.properties.building_name,
-            latitude: node.properties.latitude,
-            longitude: node.properties.longitude,
-            id: node.identity.toNumber(),
-            floor: node.properties.floor,
-            nodeType: node.properties.node_type,
-            type: 'GT',
-          }),
-        ),
+        steps: gtSteps,
       },
     ];
 
-    // Aggregate steps, total distance, and total time together
+    if (mapboxSteps2.length > 0) {
+      steps.push({
+        type: 'mapbox',
+        steps: mapboxSteps2,
+      });
+    }
+
+    // --------------------------------------------------
+    // 7. Aggregate distance / time
+    // --------------------------------------------------
     const result: RouteResult = {
       steps,
-      totalDistance: weight + mapboxDistance,
-      totalTime: Math.round(weight / 1.4) + mapboxDuration,
+      totalDistance: weight + mapboxDistance1 + mapboxDistance2,
+      totalTime:
+        Math.round(weight / 1.4) + mapboxDuration1 + mapboxDuration2,
     };
 
-    // Move to a new transaction in case it can't write for some reason.
-    await session.executeWrite(async (tx) => {
-      await tx.run(
-        `
-        MATCH (b:Building {building_name: $name})
-        WHERE datetime().epochSeconds - coalesce(b.lastUpdated.epochSeconds, 0) >= 60
-        SET b.visits = b.visits + 1,
-        b.lastUpdated = datetime()
-      `,
-        { name: targetBuilding },
-      );
-    });
+    // --------------------------------------------------
+    // 8. Increment visits for the *target* building name
+    // --------------------------------------------------
+    await incrementBuildingVisit(session, targetBuilding);
 
     res.json(result);
   } catch (err: any) {
     console.log('Error finding Route', err);
     res.status(500).send('Failed finding Route');
   } finally {
-    session.close();
+    await session.close();
   }
 }
 
