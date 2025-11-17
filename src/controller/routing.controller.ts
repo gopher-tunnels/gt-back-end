@@ -234,15 +234,17 @@ export async function getAllBuildings(
   try {
     const { records, summary } = await driver.executeQuery(
       `
-      MATCH (b:Building)
+      MATCH (b)
+      WHERE b:Building OR b:Disconnected_Building
       RETURN  id(b) AS id, 
               b.building_name AS building_name, 
               b.address AS address,
               b.opens AS opens,
               b.closes AS closes,
               b.longitude AS longitude, 
-              b.latitude AS latitude
-    `,
+              b.latitude AS latitude,
+              b:Disconnected_Building AS is_disconnected
+      `,
       {},
       { routing: 'READ', database: 'neo4j' },
     );
@@ -255,6 +257,7 @@ export async function getAllBuildings(
       longitude: record.get('longitude'),
       latitude: record.get('latitude'),
       id: record.get('id').toNumber(),
+      isDisconnected: record.get('is_disconnected') === true,
     }));
 
     res.json(buildings);
