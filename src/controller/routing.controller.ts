@@ -3,7 +3,7 @@ import { driver } from './db';
 import { Neo4jError, Node, Path, PathSegment } from 'neo4j-driver';
 import { Unpromisify } from '../utils/types';
 import { getCandidateStartNodes } from './utils/closestNodes';
-import { haversineDistance } from './utils/haversine';
+import { haversineDistance } from '../utils/haversine';
 import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { getInstruction } from '../utils/routing/getInstruction';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
@@ -12,7 +12,9 @@ import {
   fetchConnectedBuildingNodes,
   fetchAllBuildingNodes,
   getDisconnectedBuildingCoords,
+  selectOptimalExitNode,
 } from '../services/buildings';
+import { ROUTING_CONFIG } from '../config/routing';
 import { astar } from '../services/astar';
 import { incrementBuildingVisit } from '../services/visits';
 import { isDisconnectedBuilding } from '../services/isDisconnected';
@@ -82,6 +84,50 @@ export async function getRoute(
         return;
       }
 
+      // Early exit: if user is very close to disconnected building, skip tunnel
+      const directWalkDistKm = haversineDistance(userLocation, disconnectedCoords);
+      const directWalkDistMeters = directWalkDistKm * 1000;
+
+      if (directWalkDistMeters < ROUTING_CONFIG.MIN_DIRECT_WALK_METERS) {
+        // Return Mapbox-only route, skip tunnel entirely
+        try {
+          const mapboxDirect = await getMapboxWalkingDirections(
+            userLocation,
+            disconnectedCoords,
+          );
+
+          const leg = mapboxDirect.routes[0].legs[0];
+          const directSteps: RouteStep[] = leg.steps.map(
+            (step: any, index: number) => ({
+              buildingName: '',
+              latitude: step.geometry.coordinates[0][1],
+              longitude: step.geometry.coordinates[0][0],
+              id: `direct-${index}`,
+              instruction:
+                index < leg.steps.length - 1
+                  ? processMapboxInstruction(step.maneuver?.instruction || '')
+                  : { type: 'final', label: `Arrive at ${targetBuilding}` },
+              floor: '0',
+              nodeType: 'sidewalk',
+              type: 'mapbox',
+            }),
+          );
+
+          const result: RouteResult = {
+            steps: [{ type: 'mapbox', steps: directSteps }],
+            totalDistance: mapboxDirect.routes[0].distance,
+            totalTime: mapboxDirect.routes[0].duration,
+          };
+
+          await incrementBuildingVisit(session, targetBuilding);
+          res.json(result);
+          return;
+        } catch (err) {
+          console.error('Mapbox direct walk failed, falling back to tunnel:', err);
+          // Continue with tunnel routing as fallback
+        }
+      }
+
       // Use all building_node nodes on campus as potential GT endpoints
       const allBuildingNodes = await fetchAllBuildingNodes(session);
       if (!allBuildingNodes.length) {
@@ -90,20 +136,21 @@ export async function getRoute(
         return;
       }
 
-      // Choose GT end building: closest building_node to the disconnected building
-      let best = allBuildingNodes[0];
-      let bestDist = haversineDistance(best, disconnectedCoords);
+      // Choose optimal GT exit using weighted cost function
+      // Balances tunnel distance vs outdoor walking (prefers staying indoors)
+      const optimalExit = selectOptimalExitNode(
+        allBuildingNodes,
+        disconnectedCoords,
+        userLocation,
+      );
 
-      for (let i = 1; i < allBuildingNodes.length; i++) {
-        const cand = allBuildingNodes[i];
-        const d = haversineDistance(cand, disconnectedCoords);
-        if (d < bestDist) {
-          best = cand;
-          bestDist = d;
-        }
+      if (!optimalExit) {
+        console.error('Could not find optimal exit node');
+        res.status(404).send('No path found');
+        return;
       }
 
-      routingTargetBuilding = best.buildingName;
+      routingTargetBuilding = optimalExit.buildingName;
       buildingNodesForRouting = allBuildingNodes;
     } else {
       // Normal case: use only building nodes connected to the target building
@@ -356,8 +403,8 @@ export async function getAllBuildings(
     }));
 
     res.json(buildings);
-  } catch (error: any) {
-    console.error('Error fetching buildings from database', error);
+  } catch (err: any) {
+    console.error('Error fetching buildings from database', err);
     res.status(500).send('Error fetching buildings from database');
   }
 }
@@ -437,15 +484,15 @@ export async function searchBuildings(req: Request, res: Response) {
 
     // Send all matches with 200 status code
     res.status(200).json(matches);
-  } catch (e: any) {
+  } catch (err: any) {
     // Catching any error, if we want to specialize we could make cases for particular error codes
     // Logging, I would keep this here for debugging purposes
-    console.log('Search Error: ', e);
+    console.log('Search Error: ', err);
 
     // Currently I'm assuming that this error will be concerning the database so I'm throwing a 503
     res.status(503).json({
       error: 'Error while querying the database',
-      details: e.message,
+      details: err.message,
     });
   }
 }
@@ -509,10 +556,10 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
 
     // Logging for the building nodes + scores
     // console.log(results);
-  } catch (e) {
+  } catch (err) {
     // Erroring out, assuming it is a database problem
-    console.log('Error querying database: ', e);
-    throw e;
+    console.log('Error querying database: ', err);
+    throw err;
   }
   return results;
 }

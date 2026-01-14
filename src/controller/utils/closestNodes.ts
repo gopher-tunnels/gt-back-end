@@ -1,10 +1,7 @@
 import { BuildingNode, Coordinates } from '../../types/nodes';
-import { haversineDistance } from './haversine';
-
-const FORWARD_DIRECTION_LEEWAY_FACTOR = 1.06;
-const MAX_NODES = 1;
-const DIRECTION_ANGLE_WEIGHT = 1;
-const TARGET_BUILDING_PENALTY_MULTIPLIER = 1.15; // prefer intermediate tunnel access points over the destination itself when viable
+import { haversineDistance } from '../../utils/haversine';
+import { toRadians } from '../../utils/math';
+import { ROUTING_CONFIG } from '../../config/routing';
 
 type Vector2D = { x: number; y: number };
 
@@ -36,7 +33,7 @@ export function getCandidateStartNodes(
 
   const candidates = buildings.filter((building) => {
     const distToDest = haversineDistance(building, destinationNode);
-    return distToDest <= userDistToDest * FORWARD_DIRECTION_LEEWAY_FACTOR;
+    return distToDest <= userDistToDest * ROUTING_CONFIG.FORWARD_DIRECTION_LEEWAY_FACTOR;
   });
 
   const scoredCandidates = candidates
@@ -53,11 +50,11 @@ export function getCandidateStartNodes(
 
       // favor nodes that minimize outdoor distance while keeping the approach aligned with the destination
       const baseCost =
-        distanceFromUser * (1 + DIRECTION_ANGLE_WEIGHT * angleRatio);
+        distanceFromUser * (1 + ROUTING_CONFIG.DIRECTION_ANGLE_WEIGHT * angleRatio);
       const isTarget = building.buildingName === targetBuildingName;
       const adjustedCost =
         isTarget && candidates.length > 1
-          ? baseCost * TARGET_BUILDING_PENALTY_MULTIPLIER
+          ? baseCost * ROUTING_CONFIG.TARGET_BUILDING_PENALTY_MULTIPLIER
           : baseCost;
 
       return {
@@ -84,11 +81,7 @@ export function getCandidateStartNodes(
       return a.building.buildingName.localeCompare(b.building.buildingName);
     });
 
-  return scoredCandidates.slice(0, MAX_NODES).map((entry) => entry.building);
-}
-
-function toRadians(degrees: number): number {
-  return (degrees * Math.PI) / 180;
+  return scoredCandidates.slice(0, ROUTING_CONFIG.MAX_START_NODES).map((entry) => entry.building);
 }
 
 function toVector(from: Coordinates, to: Coordinates): Vector2D {
