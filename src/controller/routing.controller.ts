@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Neo4jError, Node, Path, PathSegment } from 'neo4j-driver';
 import { Unpromisify } from '../utils/types';
-import { getCandidateStartNodes } from './utils/closestNodes';
+import { getCandidateStartNodes } from '../utils/routing/closestNodes';
 import { haversineDistance } from '../utils/haversine';
 import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { getInstruction } from '../utils/routing/getInstruction';
