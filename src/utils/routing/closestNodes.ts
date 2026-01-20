@@ -1,6 +1,5 @@
 import { BuildingNode, Coordinates } from '../../types/nodes';
-import { haversineDistance } from '../../utils/haversine';
-import { toRadians } from '../../utils/math';
+import { haversineDistance, toRadians } from '../math';
 import { ROUTING_CONFIG } from '../../config/routing';
 
 type Vector2D = { x: number; y: number };

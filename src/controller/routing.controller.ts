@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { Unpromisify } from '../utils/types';
 import { getCandidateStartNodes } from '../utils/routing/closestNodes';
 import { Coordinates, BuildingNode } from '../types/nodes';
 import { astar } from '../services/astar';
@@ -321,7 +320,7 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
   if (!searchInputText) return [];
 
   // Aggregating query results into a list of a dict containing name and score
-  const results = [] as Unpromisify<ReturnType<typeof getSearchResults>>;
+  const results: Awaited<ReturnType<typeof getSearchResults>> = [];
 
   // Logging for debug purposes
   // console.log('Search input text:', searchInputText);

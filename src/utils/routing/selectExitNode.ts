@@ -1,5 +1,5 @@
 import type { BuildingNode, Coordinates } from '../../types/nodes';
-import { haversineDistance } from '../haversine';
+import { haversineDistance } from '../math';
 import {
   ROUTING_CONFIG,
   OUTDOOR_PENALTY_BY_PREFERENCE,

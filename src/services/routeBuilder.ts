@@ -1,7 +1,7 @@
 // src/services/routeBuilder.ts
 import type { Session } from 'neo4j-driver';
 import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
-import { haversineDistance } from '../utils/haversine';
+import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { selectOptimalExitNode } from '../utils/routing/selectExitNode';
 import { getMapboxWalkingDirections } from './mapbox';
