@@ -15,7 +15,7 @@ export const ROUTING_CONFIG = {
   TUNNEL_ESTIMATE_FACTOR: 1.4, // Tunnel paths are ~1.4x straight-line distance
 
   // Start node selection constants
-  FORWARD_DIRECTION_LEEWAY_FACTOR: 1.1, // Allow nodes slightly past destination
+  FORWARD_DIRECTION_LEEWAY_FACTOR: 1.06, // Allow nodes slightly past destination
   MAX_START_NODES: 1, // Number of candidate start nodes to return
   DIRECTION_ANGLE_WEIGHT: 1, // Weight for angle-based scoring
   TARGET_BUILDING_PENALTY_MULTIPLIER: 1.15, // Prefer intermediate access points over destination
