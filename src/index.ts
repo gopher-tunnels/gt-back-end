@@ -34,22 +34,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerOutput));
 const requestRateLimiter = buildRateLimiter({
   validateXForwardedFor: trustProxy !== false,
 });
-// app.use('/api/routing', requestRateLimiter, requestSecurityMiddleware, routingRoutes);
-
-app.use(
-  '/api/routing',
-  requestRateLimiter,
-  (req, res, next) => {
-    // Allow all GET requests without HMAC headers
-    if (req.method === 'GET') {
-      return next();
-    }
-
-    // Enforce HMAC security for non-GET methods (POST, PUT, PATCH, DELETE)
-    return requestSecurityMiddleware(req as any, res, next);
-  },
-  routingRoutes,
-);
+app.use('/api/routing', requestRateLimiter, requestSecurityMiddleware, routingRoutes);
 
 // close exit app when app is interrupted
 process.on('SIGINT', async () => {
