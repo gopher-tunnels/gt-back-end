@@ -1,12 +1,30 @@
 // src/services/buildings.ts
 import type { Session } from 'neo4j-driver';
 import type { BuildingNode, Coordinates } from '../types/nodes';
-import { haversineDistance } from '../utils/haversine';
-import {
-  ROUTING_CONFIG,
-  OUTDOOR_PENALTY_BY_PREFERENCE,
-  type RoutingPreference,
-} from '../config/routing';
+
+/**
+ * Checks whether a building name corresponds to a Disconnected_Building node.
+ */
+export async function isDisconnectedBuilding(
+  session: Session,
+  buildingName: string,
+): Promise<boolean> {
+  const { records } = await session.executeRead((tx) =>
+    tx.run(
+      `
+      OPTIONAL MATCH (b:Disconnected_Building {building_name: $name})
+      RETURN b IS NOT NULL AS isDisconnected
+      `,
+      { name: buildingName },
+    ),
+  );
+
+  if (!records.length) {
+    return false;
+  }
+
+  return Boolean(records[0].get('isDisconnected'));
+}
 
 /**
  * Fetches building_node candidates that are connected to a given target building.
@@ -54,21 +72,21 @@ export async function fetchConnectedBuildingNodes(
 }
 
 /**
- * Fetches latitude/longitude for a Disconnected_Building node by building_name.
+ * Fetches latitude/longitude for any Building node by building_name.
  *
- * Used when the user selects a disconnected building as the target so we can:
- *  - create a final Mapbox segment from the GT exit to this disconnected node
+ * Works for both connected and disconnected buildings since Disconnected_Building
+ * nodes also have the Building label.
  */
-export async function getDisconnectedBuildingCoords(
+export async function getBuildingCoords(
   session: Session,
   buildingName: string,
 ): Promise<Coordinates | null> {
   const { records } = await session.executeRead((tx) =>
     tx.run(
       `
-      MATCH (d:Disconnected_Building {building_name: $name})
-      RETURN d.latitude AS latitude,
-             d.longitude AS longitude
+      MATCH (b:Building {building_name: $name})
+      RETURN b.latitude AS latitude,
+             b.longitude AS longitude
       `,
       { name: buildingName },
     ),
@@ -89,7 +107,7 @@ export async function getDisconnectedBuildingCoords(
 
 /**
  * Fetches all Node nodes with node_type = "building_node".
- * 
+ *
  * WE ALREADY HAVE AN ENDPOINT FOR THIS. TODO: MERGE FOR DRY
  *
  * Used for the disconnected-building edge case so we can:
@@ -117,65 +135,4 @@ export async function fetchAllBuildingNodes(
     latitude: record.get('latitude'),
     longitude: record.get('longitude'),
   }));
-}
-
-/**
- * Selects the optimal tunnel exit node for routing to a disconnected building.
- *
- * Uses a weighted cost function to balance tunnel distance vs outdoor walking:
- *   cost = tunnel_estimate + (outdoor_distance × outdoor_penalty)
- *
- * @param allBuildingNodes - All available building_node entries
- * @param disconnectedCoords - Coordinates of the disconnected building target
- * @param userLocation - User's current location
- * @param preference - Routing preference (indoor/balanced/fastest)
- * @returns The optimal exit node, or null if no candidates found
- */
-export function selectOptimalExitNode(
-  allBuildingNodes: BuildingNode[],
-  disconnectedCoords: Coordinates,
-  userLocation: Coordinates,
-  preference: RoutingPreference = ROUTING_CONFIG.DEFAULT_PREFERENCE,
-): BuildingNode | null {
-  const outdoorPenalty = OUTDOOR_PENALTY_BY_PREFERENCE[preference];
-
-  // Filter to exit candidates within reasonable radius of disconnected building
-  const exitCandidates = allBuildingNodes.filter(
-    (node) =>
-      haversineDistance(node, disconnectedCoords) < ROUTING_CONFIG.MAX_EXIT_RADIUS_KM,
-  );
-
-  // Fallback: if no candidates within radius, use closest building_node
-  if (exitCandidates.length === 0) {
-    if (allBuildingNodes.length === 0) return null;
-
-    let closest = allBuildingNodes[0];
-    let closestDist = haversineDistance(closest, disconnectedCoords);
-
-    for (let i = 1; i < allBuildingNodes.length; i++) {
-      const dist = haversineDistance(allBuildingNodes[i], disconnectedCoords);
-      if (dist < closestDist) {
-        closest = allBuildingNodes[i];
-        closestDist = dist;
-      }
-    }
-
-    return closest;
-  }
-
-  // Score each candidate using weighted cost function
-  const scored = exitCandidates.map((node) => {
-    const outdoorDist = haversineDistance(node, disconnectedCoords);
-    // Estimate tunnel distance: straight-line × factor (tunnels aren't direct)
-    const tunnelEstimate =
-      haversineDistance(userLocation, node) * ROUTING_CONFIG.TUNNEL_ESTIMATE_FACTOR;
-    const weightedCost = tunnelEstimate + outdoorDist * outdoorPenalty;
-
-    return { node, weightedCost };
-  });
-
-  // Sort by weighted cost and return best option
-  scored.sort((a, b) => a.weightedCost - b.weightedCost);
-
-  return scored[0].node;
 }

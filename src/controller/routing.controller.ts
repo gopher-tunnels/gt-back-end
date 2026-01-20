@@ -1,35 +1,24 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
-import { Neo4jError, Node, Path, PathSegment } from 'neo4j-driver';
+import { Node } from 'neo4j-driver';
 import { Unpromisify } from '../utils/types';
 import { getCandidateStartNodes } from '../utils/routing/closestNodes';
-import { haversineDistance } from '../utils/haversine';
-import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
-import { getInstruction } from '../utils/routing/getInstruction';
-import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
-import { getMapboxWalkingDirections } from '../services/mapbox';
-import {
-  fetchConnectedBuildingNodes,
-  fetchAllBuildingNodes,
-  getDisconnectedBuildingCoords,
-  selectOptimalExitNode,
-} from '../services/buildings';
-import { ROUTING_CONFIG } from '../config/routing';
+import { Coordinates, BuildingNode } from '../types/nodes';
 import { astar } from '../services/astar';
 import { incrementBuildingVisit } from '../services/visits';
-import { isDisconnectedBuilding } from '../services/isDisconnected';
-
-
-// the units of the distance is meters
-//the units of the time is seconds
-interface RouteResult {
-  steps: { type: string; steps: RouteStep[] }[]; // In order of the path.
-  totalDistance: number;
-  totalTime: number;
-}
+import { isDisconnectedBuilding, getBuildingCoords } from '../services/buildings';
+import {
+  aggregateRoute,
+  buildMapboxSegment,
+  resolveConnectedTarget,
+  resolveDisconnectedTarget,
+  handleDirectWalk,
+  findUserInsideBuilding,
+  type MapboxSegmentResult,
+} from '../services/routeBuilder';
 
 /**
- * POST /route
+ * GET /route
  * Computes and returns the full navigable route from a given start location to a target building.
  *
  * Normal case:
@@ -51,6 +40,8 @@ export async function getRoute(
   const latitude = parseFloat(req.query.latitude as string);
   const userLocation: Coordinates = { latitude, longitude };
 
+  console.log("Routing to building:", targetBuilding);
+
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
     console.error('Missing target building or coordinates');
     res.status(400).send('Invalid query parameters');
@@ -60,195 +51,95 @@ export async function getRoute(
   const session = driver.session({ database: 'neo4j' });
 
   try {
-    // --------------------------------------------------
     // 1. Determine if target is a Disconnected_Building
-    // --------------------------------------------------
     const disconnected = await isDisconnectedBuilding(session, targetBuilding);
 
-    let routingTargetBuilding = targetBuilding; // building_name we actually route GT to
+    // 2. Get target building coordinates (works for both connected and disconnected)
+    const targetCoords = await getBuildingCoords(session, targetBuilding);
+
+    // 3. Resolve routing parameters based on building type
+    let routingTargetBuilding: string;
+    let buildingNodesForRouting: BuildingNode[];
     let disconnectedCoords: Coordinates | null = null;
-    let buildingNodesForRouting: BuildingNode[] = [];
 
     if (disconnected) {
-      // Disconnected target: find its coordinates
-      disconnectedCoords = await getDisconnectedBuildingCoords(
-        session,
-        targetBuilding,
-      );
-      if (!disconnectedCoords) {
-        console.error(
-          'Disconnected building has no latitude/longitude:',
-          targetBuilding,
-        );
-        res.status(404).send('Target building not found');
-        return;
-      }
-
-      // Early exit: if user is very close to disconnected building, skip tunnel
-      const directWalkDistKm = haversineDistance(userLocation, disconnectedCoords);
-      const directWalkDistMeters = directWalkDistKm * 1000;
-
-      if (directWalkDistMeters < ROUTING_CONFIG.MIN_DIRECT_WALK_METERS) {
-        // Return Mapbox-only route, skip tunnel entirely
-        try {
-          const mapboxDirect = await getMapboxWalkingDirections(
-            userLocation,
-            disconnectedCoords,
-          );
-
-          const leg = mapboxDirect.routes[0].legs[0];
-          const directSteps: RouteStep[] = leg.steps.map(
-            (step: any, index: number) => ({
-              buildingName: '',
-              latitude: step.geometry.coordinates[0][1],
-              longitude: step.geometry.coordinates[0][0],
-              id: `direct-${index}`,
-              instruction:
-                index < leg.steps.length - 1
-                  ? processMapboxInstruction(step.maneuver?.instruction || '')
-                  : { type: 'final', label: `Arrive at ${targetBuilding}` },
-              floor: '0',
-              nodeType: 'sidewalk',
-              type: 'mapbox',
-            }),
-          );
-
-          const result: RouteResult = {
-            steps: [{ type: 'mapbox', steps: directSteps }],
-            totalDistance: mapboxDirect.routes[0].distance,
-            totalTime: mapboxDirect.routes[0].duration,
-          };
-
-          await incrementBuildingVisit(session, targetBuilding);
-          res.json(result);
-          return;
-        } catch (err) {
-          console.error('Mapbox direct walk failed, falling back to tunnel:', err);
-          // Continue with tunnel routing as fallback
-        }
-      }
-
-      // Use all building_node nodes on campus as potential GT endpoints
-      const allBuildingNodes = await fetchAllBuildingNodes(session);
-      if (!allBuildingNodes.length) {
-        console.error('No building nodes available for routing');
+      const disconnectedResult = await resolveDisconnectedTarget(session, targetBuilding, userLocation, targetCoords);
+      if (!disconnectedResult) {
         res.status(404).send('No path found');
         return;
       }
 
-      // Choose optimal GT exit using weighted cost function
-      // Balances tunnel distance vs outdoor walking (prefers staying indoors)
-      const optimalExit = selectOptimalExitNode(
-        allBuildingNodes,
-        disconnectedCoords,
-        userLocation,
-      );
-
-      if (!optimalExit) {
-        console.error('Could not find optimal exit node');
-        res.status(404).send('No path found');
-        return;
-      }
-
-      routingTargetBuilding = optimalExit.buildingName;
-      buildingNodesForRouting = allBuildingNodes;
+      disconnectedCoords = disconnectedResult.disconnectedCoords;
+      routingTargetBuilding = disconnectedResult.routingTargetBuilding;
+      buildingNodesForRouting = disconnectedResult.buildingNodesForRouting;
     } else {
-      // Normal case: use only building nodes connected to the target building
-      buildingNodesForRouting = await fetchConnectedBuildingNodes(
+      const connectedResult = await resolveConnectedTarget(session, targetBuilding);
+      if (!connectedResult) {
+        res.status(404).send('No path found');
+        return;
+      }
+      routingTargetBuilding = connectedResult.routingTargetBuilding;
+      buildingNodesForRouting = connectedResult.buildingNodesForRouting;
+    }
+
+    // 4. Check if user is inside a building (within ~25m of a building_node)
+    const insideBuilding = findUserInsideBuilding(buildingNodesForRouting, userLocation);
+
+    // 5. Check if user is close enough for direct walk
+    // Skip direct walk if user is inside a connected building going to another connected building
+    // (they should use the tunnel instead of going outside)
+    const shouldSkipDirectWalk = insideBuilding && !disconnected;
+
+    if (targetCoords && !shouldSkipDirectWalk) {
+      const directWalkResult = await handleDirectWalk(
         session,
+        userLocation,
+        targetCoords,
         targetBuilding,
       );
-
-      if (!buildingNodesForRouting.length) {
-        console.error(
-          'No connected building nodes found for target',
-          targetBuilding,
-        );
-        res.status(404).send('No path found');
+      if (directWalkResult) {
+        res.json(directWalkResult);
         return;
       }
     }
 
-    // --------------------------------------------------
-    // 2. Choose GT start node from userLocation
-    // --------------------------------------------------
-    const candidateStartNodes = getCandidateStartNodes(
-      buildingNodesForRouting,
-      userLocation,
-      routingTargetBuilding,
-    );
+    // 6. Determine start node and whether to skip initial Mapbox segment (tunnel entry)
+    let startNode: BuildingNode;
+    let skipInitialMapbox = false;
 
-    if (!candidateStartNodes.length) {
-      console.error('No candidate start nodes found for user location');
-      res.status(404).send('No path found');
-      return;
-    }
-
-    const startNode = candidateStartNodes[0]; // closest & best aligned node
-
-    // --------------------------------------------------
-    // 3. Mapbox segment 1: user -> GT start
-    // --------------------------------------------------
-    let mapboxSteps1Raw: { coords: [number, number]; instruction?: string }[] =
-      [];
-    let mapboxDistance1 = 0;
-    let mapboxDuration1 = 0;
-
-    try {
-      const mapboxDirections = await getMapboxWalkingDirections(
-        { latitude, longitude },
-        { latitude: startNode.latitude, longitude: startNode.longitude },
+    if (insideBuilding) {
+      // User is inside a building - start from that building's tunnel entrance
+      startNode = insideBuilding;
+      skipInitialMapbox = true;
+      console.log(`User is inside building: ${insideBuilding.buildingName}, starting from tunnel`);
+    } else {
+      // User is outside - find best start node
+      const candidateStartNodes = getCandidateStartNodes(
+        buildingNodesForRouting,
+        userLocation,
+        routingTargetBuilding,
       );
 
-      const leg = mapboxDirections.routes[0].legs[0];
+      if (!candidateStartNodes.length) {
+        console.error('No candidate start nodes found for user location');
+        res.status(404).send('No path found');
+        return;
+      }
 
-      mapboxSteps1Raw = [
-        {
-          coords: leg.steps[0]?.geometry?.coordinates?.[0] || [0, 0],
-        },
-        ...leg.steps.slice(0, -1).map((step: any) => ({
-          coords: step?.geometry?.coordinates?.[1] || [0, 0],
-          instruction: step?.maneuver?.instruction,
-        })),
-      ];
-
-      mapboxDistance1 = mapboxDirections.routes[0].distance;
-      mapboxDuration1 = mapboxDirections.routes[0].duration;
-    } catch (err) {
-      console.error('Mapbox Directions API (segment 1) failed:', err);
-      // Still continue with GT-only routing if needed
+      startNode = candidateStartNodes[0];
     }
 
-    const mapboxSteps1: RouteStep[] = mapboxSteps1Raw.map(
-      ({ coords }, index) => ({
-        buildingName: '',
-        latitude: coords[1],
-        longitude: coords[0],
-        id: JSON.stringify(coords),
-        instruction:
-          index !== mapboxSteps1Raw.length - 1
-            ? processMapboxInstruction(
-                mapboxSteps1Raw[index + 1]?.instruction || '',
-              )
-            : {
-                type: 'final',
-                label: 'Continue through the GopherWay',
-              },
-        floor: '0',
-        nodeType: 'sidewalk',
-        type: 'mapbox',
-      }),
-    );
+    // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
+    const mapboxSegment1: MapboxSegmentResult = skipInitialMapbox
+      ? { steps: [], distance: 0, duration: 0 }
+      : (await buildMapboxSegment(
+          userLocation,
+          { latitude: startNode.latitude, longitude: startNode.longitude },
+          { type: 'final', label: 'Continue through the GopherWay' },
+        ) ?? { steps: [], distance: 0, duration: 0 });
 
-    // --------------------------------------------------
-    // 4. GT segment: A* from startNode -> routingTargetBuilding
-    // --------------------------------------------------
-    const astarResult = await astar(
-      session,
-      startNode.buildingName,
-      routingTargetBuilding,
-    );
-
+    // 8. GT segment: A* from startNode -> routingTargetBuilding
+    const astarResult = await astar(session, startNode.buildingName, routingTargetBuilding);
     if (!astarResult) {
       console.error('A* could not find a path');
       res.status(404).send('No path found');
@@ -257,102 +148,20 @@ export async function getRoute(
 
     const { steps: gtSteps, weight } = astarResult;
 
-    // --------------------------------------------------
-    // 5. Optional Mapbox segment 2: GT end -> disconnected building
-    // --------------------------------------------------
-    let mapboxSteps2: RouteStep[] = [];
-    let mapboxDistance2 = 0;
-    let mapboxDuration2 = 0;
-
+    // 9. Optional Mapbox segment 2: GT end -> disconnected building
+    let mapboxSegment2: MapboxSegmentResult | null = null;
     if (disconnected && disconnectedCoords && gtSteps.length > 0) {
       const lastGtStep = gtSteps[gtSteps.length - 1];
-
-      try {
-        const mapboxDirections2 = await getMapboxWalkingDirections(
-          {
-            latitude: lastGtStep.latitude,
-            longitude: lastGtStep.longitude,
-          },
-          {
-            latitude: disconnectedCoords.latitude,
-            longitude: disconnectedCoords.longitude,
-          },
-        );
-
-        const leg2 = mapboxDirections2.routes[0].legs[0];
-
-        const rawSteps2 = [
-          {
-            coords: leg2.steps[0]?.geometry?.coordinates?.[0] || [0, 0],
-          },
-          ...leg2.steps.slice(0, -1).map((step: any) => ({
-            coords: step?.geometry?.coordinates?.[1] || [0, 0],
-            instruction: step?.maneuver?.instruction,
-          })),
-        ];
-
-        mapboxSteps2 = rawSteps2.map(({ coords }, index) => ({
-          buildingName: '',
-          latitude: coords[1],
-          longitude: coords[0],
-          id: JSON.stringify(coords),
-          instruction:
-            index !== rawSteps2.length - 1
-              ? processMapboxInstruction(
-                  rawSteps2[index + 1]?.instruction || '',
-                )
-              : {
-                  type: 'final',
-                  label: `Walk to ${targetBuilding}`,
-                },
-          floor: '0',
-          nodeType: 'sidewalk',
-          type: 'mapbox',
-        }));
-
-        mapboxDistance2 = mapboxDirections2.routes[0].distance;
-        mapboxDuration2 = mapboxDirections2.routes[0].duration;
-      } catch (err) {
-        console.error('Mapbox Directions API (segment 2) failed:', err);
-      }
+      mapboxSegment2 = await buildMapboxSegment(
+        { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude },
+        disconnectedCoords,
+        { type: 'final', label: `Walk to ${targetBuilding}` },
+      );
     }
 
-    // --------------------------------------------------
-    // 6. Aggregate steps: mapbox1 -> GT -> (optional) mapbox2
-    // --------------------------------------------------
-    const steps: { type: string; steps: RouteStep[] }[] = [
-      {
-        type: 'mapbox',
-        steps: mapboxSteps1,
-      },
-      {
-        type: 'GT',
-        steps: gtSteps,
-      },
-    ];
-
-    if (mapboxSteps2.length > 0) {
-      steps.push({
-        type: 'mapbox',
-        steps: mapboxSteps2,
-      });
-    }
-
-    // --------------------------------------------------
-    // 7. Aggregate distance / time
-    // --------------------------------------------------
-    const result: RouteResult = {
-      steps,
-      totalDistance: weight + mapboxDistance1 + mapboxDistance2,
-      totalTime:
-        Math.round(weight / 1.4) + mapboxDuration1 + mapboxDuration2,
-    };
-
-    // --------------------------------------------------
-    // 8. Increment visits for the *target* building name
-    // --------------------------------------------------
+    // 10. Aggregate and respond
+    const result = aggregateRoute(mapboxSegment1, gtSteps, weight, mapboxSegment2);
     await incrementBuildingVisit(session, targetBuilding);
-
     res.json(result);
   } catch (err: any) {
     console.log('Error finding Route', err);
@@ -374,16 +183,15 @@ export async function getAllBuildings(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { records, summary } = await driver.executeQuery(
+    const { records } = await driver.executeQuery(
       `
-      MATCH (b)
-      WHERE b:Building OR b:Disconnected_Building
-      RETURN  id(b) AS id, 
-              b.building_name AS building_name, 
+      MATCH (b:Building)
+      RETURN  id(b) AS id,
+              b.building_name AS building_name,
               b.address AS address,
               b.opens AS opens,
               b.closes AS closes,
-              b.longitude AS longitude, 
+              b.longitude AS longitude,
               b.latitude AS latitude,
               b:Disconnected_Building AS is_disconnected
       `,
@@ -425,10 +233,10 @@ export async function getPopularBuildings(
   next: NextFunction,
 ) {
   try {
-    let { records, summary } = await driver.executeQuery(
+    const { records } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN 
+      RETURN
         id(b)           AS id,
         b.building_name AS buildingName,
         b.visits        AS visits,
@@ -525,8 +333,8 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
     // Querying neo4j using fuzzy search, obtaining only top 5 results (automatically desc, but I'll make sure)
     const queryResult = await driver.executeQuery(
       `
-      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input) 
-      YIELD node, score 
+      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input)
+      YIELD node, score
       RETURN node, score
       ORDER BY score DESC
       LIMIT 5
