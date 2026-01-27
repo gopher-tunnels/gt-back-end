@@ -1,9 +1,5 @@
 import axios from 'axios';
-
-interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
+import { Coordinates } from '../types/nodes';
 
 const mapboxClient = axios.create({
   baseURL: 'https://api.mapbox.com/directions/v5/mapbox',
