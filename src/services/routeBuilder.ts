@@ -76,6 +76,7 @@ export async function buildMapboxSegment(
         coords: step?.geometry?.coordinates?.[1] || [0, 0],
         instruction: step?.maneuver?.instruction,
       })),
+      { coords: [destination.longitude, destination.latitude] }, //THIS ADDS THE ACTUAL DEST COORDS AS THE FINAL POINT
     ];
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
