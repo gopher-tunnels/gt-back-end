@@ -1,32 +1,33 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
-import { Neo4jError, Node, Path, PathSegment } from 'neo4j-driver';
-import { Unpromisify } from '../utils/types';
-import { getCandidateStartNodes } from './utils/closestNodes';
-import { BuildingNode, RouteStep } from '../types/nodes';
-import { getInstruction } from '../utils/routing/getInstruction';
-import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
-import { getMapboxWalkingDirections } from '../services/mapbox';
-
-// the units of the distance is meters
-//the units of the time is seconds
-interface RouteResult {
-  steps: { type: string; steps: RouteStep[] }[]; // In order of the path.
-  totalDistance: number;
-  totalTime: number;
-}
+import { Node } from 'neo4j-driver';
+import { getCandidateStartNodes } from '../utils/routing/closestNodes';
+import { Coordinates, BuildingNode } from '../types/nodes';
+import { astar } from '../services/astar';
+import { incrementBuildingVisit } from '../services/visits';
+import { isDisconnectedBuilding, getBuildingCoords } from '../services/buildings';
+import {
+  aggregateRoute,
+  buildMapboxSegment,
+  resolveConnectedTarget,
+  resolveDisconnectedTarget,
+  handleDirectWalk,
+  findUserInsideBuilding,
+  type MapboxSegmentResult,
+} from '../services/routeBuilder';
 
 /**
- * POST /route
+ * GET /route
  * Computes and returns the full navigable route from a given start location to a target building.
  *
- * TODO:
- *  - Handle Edge Cases: Close to destination, same coordinates as destination*, Not on campus, no buildings in front.
- *  - Figure out if update visits write query should be in a new transaction.
+ * Normal case:
+ *  - Mapbox: user -> GT start node
+ *  - GT (A*): start node -> target building
  *
- * @param coords - The starting location as longitude, latitude coordinates.
- * @param targetDestination - The name of the target building.
- * @returns A array of route objects that the frontend can display.
+ * Disconnected_Building case:
+ *  - Mapbox: user -> GT start node
+ *  - GT (A*): start node -> closest building_node to the disconnected building
+ *  - Mapbox: GT end node -> disconnected building
  */
 export async function getRoute(
   req: Request,
@@ -36,187 +37,136 @@ export async function getRoute(
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
-  const userLocation = { latitude, longitude };
+  const userLocation: Coordinates = { latitude, longitude };
+
+  console.log("Routing to building:", targetBuilding);
 
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
     console.error('Missing target building or coordinates');
     res.status(400).send('Invalid query parameters');
+    return;
   }
 
   const session = driver.session({ database: 'neo4j' });
+
   try {
-    const { records: buildingRecords } = await session.executeRead(
-      async (tx) => {
-        return await tx.run(
-          `
-          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-          RETURN 
-            id(start) AS id,
-            start.building_name AS name, 
-            start.longitude AS longitude, 
-            start.latitude AS latitude
+    // 1. Determine if target is a Disconnected_Building
+    const disconnected = await isDisconnectedBuilding(session, targetBuilding);
 
-          UNION
+    // 2. Get target building coordinates (works for both connected and disconnected)
+    const targetCoords = await getBuildingCoords(session, targetBuilding);
 
-          MATCH (start:Node {building_name: $targetBuilding, node_type: "building_node"})
-          MATCH path = (start)-[*1..400]-(connected:Node)
-          WHERE connected.node_type = "building_node" AND connected <> start
-          RETURN DISTINCT 
-            id(connected) AS id,
-            connected.building_name AS name, 
-            connected.longitude AS longitude, 
-            connected.latitude AS latitude
-          `,
-          { targetBuilding },
-        );
-      },
-    );
+    // 3. Resolve routing parameters based on building type
+    let routingTargetBuilding: string;
+    let buildingNodesForRouting: BuildingNode[];
+    let disconnectedCoords: Coordinates | null = null;
 
-    const connectedBuildings: BuildingNode[] = buildingRecords.map(
-      (record) => ({
-        buildingName: record.get('name'),
-        longitude: record.get('longitude'),
-        latitude: record.get('latitude'),
-        id: record.get('id').toNumber(),
-      }),
-    );
+    if (disconnected) {
+      const disconnectedResult = await resolveDisconnectedTarget(session, targetBuilding, userLocation, targetCoords);
+      if (!disconnectedResult) {
+        res.status(404).send('No path found');
+        return;
+      }
 
-    const candidateStartNodes = getCandidateStartNodes(
-      connectedBuildings,
-      userLocation,
-      targetBuilding,
-    );
-
-    const startNode = candidateStartNodes[0]; // Grab closest candidate node for now
-    // Initialize an empty array for aggregating steps associated to mapbox
-    let mapboxSteps: { coords: [number, number]; instruction?: string }[] = [];
-    let mapboxDuration = 0;
-    let mapboxDistance = 0;
-    // Try block for the external direction services; if they fail, keep routing via Neo4j only
-    try {
-      const mapboxDirections = await getMapboxWalkingDirections(
-        { latitude, longitude },
-        { latitude: startNode.latitude, longitude: startNode.longitude },
-      );
-
-      mapboxSteps = [
-        {
-          coords: mapboxDirections.routes[0].legs[0].steps[0]?.geometry
-            ?.coordinates?.[0] || [0, 0],
-        },
-        ...mapboxDirections.routes[0].legs[0].steps
-          .slice(0, -1)
-          .map((step: any) => ({
-            coords: step?.geometry?.coordinates?.[1] || [0, 0],
-            instruction: step?.maneuver?.instruction,
-          })),
-      ];
-      mapboxDistance = mapboxDirections.routes[0].distance;
-      mapboxDuration = mapboxDirections.routes[0].duration;
-    } catch (err) {
-      console.error('Mapbox Directions API failed:', err);
-      // Proceed with Neo4j-only route if Mapbox fails
+      disconnectedCoords = disconnectedResult.disconnectedCoords;
+      routingTargetBuilding = disconnectedResult.routingTargetBuilding;
+      buildingNodesForRouting = disconnectedResult.buildingNodesForRouting;
+    } else {
+      const connectedResult = await resolveConnectedTarget(session, targetBuilding);
+      if (!connectedResult) {
+        res.status(404).send('No path found');
+        return;
+      }
+      routingTargetBuilding = connectedResult.routingTargetBuilding;
+      buildingNodesForRouting = connectedResult.buildingNodesForRouting;
     }
 
-    const { records: pathRecords } = await session.executeRead(async (tx) => {
-      return await tx.run(
-        `
-        MATCH (start:Node {building_name: $startName, node_type: 'building_node'})
-        WITH start
-        MATCH (end:Node {building_name: $endName, node_type: 'building_node'})
-        CALL apoc.algo.aStar(
-          start, end,
-          'CONNECTED_TO',
-          'distance', 'latitude', 'longitude'
-        )
-        YIELD path, weight
-        RETURN path, weight
-      `,
-        { startName: startNode.buildingName, endName: targetBuilding },
-      );
-    });
+    // 4. Check if user is inside a building (within ~25m of a building_node)
+    const insideBuilding = findUserInsideBuilding(buildingNodesForRouting, userLocation);
 
-    const pathRecord = pathRecords[0];
-    if (!pathRecord) {
+    // 5. Check if user is close enough for direct walk
+    // Skip direct walk if user is inside a connected building going to another connected building
+    // (they should use the tunnel instead of going outside)
+    const shouldSkipDirectWalk = insideBuilding && !disconnected;
+
+    if (targetCoords && !shouldSkipDirectWalk) {
+      const directWalkResult = await handleDirectWalk(
+        session,
+        userLocation,
+        targetCoords,
+        targetBuilding,
+      );
+      if (directWalkResult) {
+        res.json(directWalkResult);
+        return;
+      }
+    }
+
+    // 6. Determine start node and whether to skip initial Mapbox segment (tunnel entry)
+    let startNode: BuildingNode;
+    let skipInitialMapbox = false;
+
+    if (insideBuilding) {
+      // User is inside a building - start from that building's tunnel entrance
+      startNode = insideBuilding;
+      skipInitialMapbox = true;
+      console.log(`User is inside building: ${insideBuilding.buildingName}, starting from tunnel`);
+    } else {
+      // User is outside - find best start node
+      const candidateStartNodes = getCandidateStartNodes(
+        buildingNodesForRouting,
+        userLocation,
+        routingTargetBuilding,
+      );
+
+      if (!candidateStartNodes.length) {
+        console.error('No candidate start nodes found for user location');
+        res.status(404).send('No path found');
+        return;
+      }
+
+      startNode = candidateStartNodes[0];
+    }
+
+    // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
+    const mapboxSegment1: MapboxSegmentResult = skipInitialMapbox
+      ? { steps: [], distance: 0, duration: 0 }
+      : (await buildMapboxSegment(
+          userLocation,
+          { latitude: startNode.latitude, longitude: startNode.longitude },
+          { type: 'final', label: 'Continue through the GopherWay' },
+        ) ?? { steps: [], distance: 0, duration: 0 });
+
+    // 8. GT segment: A* from startNode -> routingTargetBuilding
+    const astarResult = await astar(session, startNode.buildingName, routingTargetBuilding);
+    if (!astarResult) {
+      console.error('A* could not find a path');
       res.status(404).send('No path found');
       return;
     }
 
-    const path = pathRecord.get('path') as Path;
-    const weight = pathRecord.get('weight') as number;
+    const { steps: gtSteps, weight } = astarResult;
 
-    // Get all nodes in order: [start, segment1.end, segment2.end, ...]
-    const nodes: Node[] = [
-      path.start,
-      ...path.segments.map((s: PathSegment) => s.end),
-    ];
-
-    // Aggregate both Mapbox-generated step info and Neo4j-generated step info together into steps
-    const steps: { type: string; steps: RouteStep[] }[] = [
-      {
-        type: 'mapbox',
-        steps: mapboxSteps.map(({ coords, instruction }, index) => ({
-          buildingName: '',
-          latitude: coords[1],
-          longitude: coords[0],
-          id: JSON.stringify(coords),
-          instruction:
-            index != mapboxSteps.length - 1
-              ? processMapboxInstruction(
-                  mapboxSteps[index + 1]?.instruction || '',
-                )
-              : {
-                  type: 'final',
-                  label: 'Continue through the GopherWay',
-                },
-          floor: '0',
-          nodeType: 'sidewalk',
-          type: 'mapbox',
-        })),
-      },
-      {
-        type: 'GT',
-        steps: nodes.map(
-          (node: Node, index): RouteStep => ({
-            instruction: getInstruction(node, index, nodes),
-            buildingName: node.properties.building_name,
-            latitude: node.properties.latitude,
-            longitude: node.properties.longitude,
-            id: node.identity.toNumber(),
-            floor: node.properties.floor,
-            nodeType: node.properties.node_type,
-            type: 'GT',
-          }),
-        ),
-      },
-    ];
-
-    // Aggregate steps, total distance, and total time together
-    const result: RouteResult = {
-      steps,
-      totalDistance: weight + mapboxDistance,
-      totalTime: Math.round(weight / 1.4) + mapboxDuration,
-    };
-
-    // Move to a new transaction in case it can't write for some reason.
-    await session.executeWrite(async (tx) => {
-      await tx.run(
-        `
-        MATCH (b:Building {building_name: $name})
-        WHERE datetime().epochSeconds - coalesce(b.lastUpdated.epochSeconds, 0) >= 60
-        SET b.visits = b.visits + 1,
-        b.lastUpdated = datetime()
-      `,
-        { name: targetBuilding },
+    // 9. Optional Mapbox segment 2: GT end -> disconnected building
+    let mapboxSegment2: MapboxSegmentResult | null = null;
+    if (disconnected && disconnectedCoords && gtSteps.length > 0) {
+      const lastGtStep = gtSteps[gtSteps.length - 1];
+      mapboxSegment2 = await buildMapboxSegment(
+        { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude },
+        disconnectedCoords,
+        { type: 'final', label: `Walk to ${targetBuilding}` },
       );
-    });
+    }
 
+    // 10. Aggregate and respond
+    const result = aggregateRoute(mapboxSegment1, gtSteps, weight, mapboxSegment2);
+    await incrementBuildingVisit(session, targetBuilding);
     res.json(result);
   } catch (err: any) {
     console.log('Error finding Route', err);
     res.status(500).send('Failed finding Route');
   } finally {
-    session.close();
+    await session.close();
   }
 }
 
@@ -232,17 +182,18 @@ export async function getAllBuildings(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { records, summary } = await driver.executeQuery(
+    const { records } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN  id(b) AS id, 
-              b.building_name AS building_name, 
+      RETURN  id(b) AS id,
+              b.building_name AS building_name,
               b.address AS address,
               b.opens AS opens,
               b.closes AS closes,
-              b.longitude AS longitude, 
-              b.latitude AS latitude
-    `,
+              b.longitude AS longitude,
+              b.latitude AS latitude,
+              b:Disconnected_Building AS is_disconnected
+      `,
       {},
       { routing: 'READ', database: 'neo4j' },
     );
@@ -255,11 +206,12 @@ export async function getAllBuildings(
       longitude: record.get('longitude'),
       latitude: record.get('latitude'),
       id: record.get('id').toNumber(),
+      isDisconnected: record.get('is_disconnected') === true,
     }));
 
     res.json(buildings);
-  } catch (error: any) {
-    console.error('Error fetching buildings from database', error);
+  } catch (err: any) {
+    console.error('Error fetching buildings from database', err);
     res.status(500).send('Error fetching buildings from database');
   }
 }
@@ -280,10 +232,10 @@ export async function getPopularBuildings(
   next: NextFunction,
 ) {
   try {
-    let { records, summary } = await driver.executeQuery(
+    const { records } = await driver.executeQuery(
       `
       MATCH (b:Building)
-      RETURN 
+      RETURN
         id(b)           AS id,
         b.building_name AS buildingName,
         b.visits        AS visits,
@@ -339,15 +291,15 @@ export async function searchBuildings(req: Request, res: Response) {
 
     // Send all matches with 200 status code
     res.status(200).json(matches);
-  } catch (e: any) {
+  } catch (err: any) {
     // Catching any error, if we want to specialize we could make cases for particular error codes
     // Logging, I would keep this here for debugging purposes
-    console.log('Search Error: ', e);
+    console.log('Search Error: ', err);
 
     // Currently I'm assuming that this error will be concerning the database so I'm throwing a 503
     res.status(503).json({
       error: 'Error while querying the database',
-      details: e.message,
+      details: err.message,
     });
   }
 }
@@ -368,7 +320,7 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
   if (!searchInputText) return [];
 
   // Aggregating query results into a list of a dict containing name and score
-  const results = [] as Unpromisify<ReturnType<typeof getSearchResults>>;
+  const results: Awaited<ReturnType<typeof getSearchResults>> = [];
 
   // Logging for debug purposes
   // console.log('Search input text:', searchInputText);
@@ -380,8 +332,8 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
     // Querying neo4j using fuzzy search, obtaining only top 5 results (automatically desc, but I'll make sure)
     const queryResult = await driver.executeQuery(
       `
-      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input) 
-      YIELD node, score 
+      CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input)
+      YIELD node, score
       RETURN node, score
       ORDER BY score DESC
       LIMIT 5
@@ -411,10 +363,10 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
 
     // Logging for the building nodes + scores
     // console.log(results);
-  } catch (e) {
+  } catch (err) {
     // Erroring out, assuming it is a database problem
-    console.log('Error querying database: ', e);
-    throw e;
+    console.log('Error querying database: ', err);
+    throw err;
   }
   return results;
 }
