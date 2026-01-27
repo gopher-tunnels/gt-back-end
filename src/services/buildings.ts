@@ -12,8 +12,8 @@ export async function isDisconnectedBuilding(
   const { records } = await session.executeRead((tx) =>
     tx.run(
       `
-      OPTIONAL MATCH (b:Disconnected_Building {building_name: $name})
-      RETURN b IS NOT NULL AS isDisconnected
+      MATCH (b:Building {building_name: $name})
+      RETURN b:Disconnected_Building AS isDisconnected
       `,
       { name: buildingName },
     ),
@@ -23,7 +23,7 @@ export async function isDisconnectedBuilding(
     return false;
   }
 
-  return Boolean(records[0].get('isDisconnected'));
+  return records[0].get('isDisconnected') === true;
 }
 
 /**
