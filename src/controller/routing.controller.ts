@@ -52,6 +52,7 @@ export async function getRoute(
   try {
     // 1. Determine if target is a Disconnected_Building
     const disconnected = await isDisconnectedBuilding(session, targetBuilding);
+    console.log("disconnected: ", disconnected)
 
     // 2. Get target building coordinates (works for both connected and disconnected)
     const targetCoords = await getBuildingCoords(session, targetBuilding);
@@ -138,6 +139,7 @@ export async function getRoute(
         ) ?? { steps: [], distance: 0, duration: 0 });
 
     // 8. GT segment: A* from startNode -> routingTargetBuilding
+    console.log("A* start:", startNode.buildingName, "end:", routingTargetBuilding);
     const astarResult = await astar(session, startNode.buildingName, routingTargetBuilding);
     if (!astarResult) {
       console.error('A* could not find a path');
