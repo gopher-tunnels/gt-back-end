@@ -2,13 +2,13 @@
 export type RoutingPreference = 'indoor' | 'balanced' | 'fastest';
 
 export const OUTDOOR_PENALTY_BY_PREFERENCE: Record<RoutingPreference, number> = {
-  indoor: 2.0, // Strong tunnel preference
+  indoor: 3.0, // Strong tunnel preference
   balanced: 1.5, // Default - moderate tunnel preference
   fastest: 1.0, // Pure distance optimization
 };
 
 export const ROUTING_CONFIG = {
-  DEFAULT_PREFERENCE: 'balanced' as RoutingPreference,
+  DEFAULT_PREFERENCE: 'indoor' as RoutingPreference,
   MIN_DIRECT_WALK_METERS: 100, // Skip tunnel if direct walk < 100m
   INSIDE_BUILDING_METERS: 25, // User is considered inside a building if within this distance
   MAX_EXIT_RADIUS_KM: 0.5, // Only consider exits within 500m of target
