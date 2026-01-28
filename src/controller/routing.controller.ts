@@ -39,10 +39,13 @@ export async function getRoute(
   const latitude = parseFloat(req.query.latitude as string);
   const userLocation: Coordinates = { latitude, longitude };
 
-  console.log("Routing to building:", targetBuilding);
+  console.log(`\n========== ROUTE REQUEST ==========`);
+  console.log(`  Target: "${targetBuilding}"`);
+  console.log(`  User:   (${latitude}, ${longitude})`);
+  console.log(`===================================\n`);
 
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
-    console.error('Missing target building or coordinates');
+    console.error('[ERROR] Missing target building or coordinates');
     res.status(400).send('Invalid query parameters');
     return;
   }
@@ -52,9 +55,11 @@ export async function getRoute(
   try {
     // 1. Determine if target is a Disconnected_Building
     const disconnected = await isDisconnectedBuilding(session, targetBuilding);
+    console.log(`[1] Building type: ${disconnected ? 'DISCONNECTED' : 'CONNECTED'}`);
 
     // 2. Get target building coordinates (works for both connected and disconnected)
     const targetCoords = await getBuildingCoords(session, targetBuilding);
+    console.log(`[2] Target coords: ${targetCoords ? `(${targetCoords.latitude}, ${targetCoords.longitude})` : 'NOT FOUND'}`);
 
     // 3. Resolve routing parameters based on building type
     let routingTargetBuilding: string;
@@ -64,6 +69,7 @@ export async function getRoute(
     if (disconnected) {
       const disconnectedResult = await resolveDisconnectedTarget(session, targetBuilding, userLocation, targetCoords);
       if (!disconnectedResult) {
+        console.error('[3] No disconnected routing result found');
         res.status(404).send('No path found');
         return;
       }
@@ -71,18 +77,23 @@ export async function getRoute(
       disconnectedCoords = disconnectedResult.disconnectedCoords;
       routingTargetBuilding = disconnectedResult.routingTargetBuilding;
       buildingNodesForRouting = disconnectedResult.buildingNodesForRouting;
+      console.log(`[3] Disconnected exit building: "${routingTargetBuilding}"`);
+      console.log(`    Exit coords: (${disconnectedCoords.latitude}, ${disconnectedCoords.longitude})`);
     } else {
       const connectedResult = await resolveConnectedTarget(session, targetBuilding);
       if (!connectedResult) {
+        console.error('[3] No connected routing result found');
         res.status(404).send('No path found');
         return;
       }
       routingTargetBuilding = connectedResult.routingTargetBuilding;
       buildingNodesForRouting = connectedResult.buildingNodesForRouting;
+      console.log(`[3] Resolved ${buildingNodesForRouting.length} candidate building nodes`);
     }
 
     // 4. Check if user is inside a building (within ~25m of a building_node)
     const insideBuilding = findUserInsideBuilding(buildingNodesForRouting, userLocation);
+    console.log(`[4] User inside building: ${insideBuilding ? `YES - "${insideBuilding.buildingName}"` : 'NO'}`);
 
     // 5. Check if user is close enough for direct walk
     // Skip direct walk if user is inside a connected building going to another connected building
@@ -97,22 +108,22 @@ export async function getRoute(
         targetBuilding,
       );
       if (directWalkResult) {
+        console.log(`[5] EARLY EXIT: Direct walk (< 100m)`);
         res.json(directWalkResult);
         return;
       }
     }
+    console.log(`[5] Direct walk: skipped (too far or user inside building)`);
 
     // 6. Determine start node and whether to skip initial Mapbox segment (tunnel entry)
     let startNode: BuildingNode;
     let skipInitialMapbox = false;
 
     if (insideBuilding) {
-      // User is inside a building - start from that building's tunnel entrance
       startNode = insideBuilding;
       skipInitialMapbox = true;
-      console.log(`User is inside building: ${insideBuilding.buildingName}, starting from tunnel`);
+      console.log(`[6] Start node: "${startNode.buildingName}" (id: ${startNode.id}) — user is inside, skipping Mapbox`);
     } else {
-      // User is outside - find best start node
       const candidateStartNodes = getCandidateStartNodes(
         buildingNodesForRouting,
         userLocation,
@@ -120,12 +131,15 @@ export async function getRoute(
       );
 
       if (!candidateStartNodes.length) {
-        console.error('No candidate start nodes found for user location');
+        console.error('[6] No candidate start nodes found');
         res.status(404).send('No path found');
         return;
       }
 
       startNode = candidateStartNodes[0];
+      console.log(`[6] Start node: "${startNode.buildingName}" (id: ${startNode.id})`);
+      console.log(`    Start coords: (${startNode.latitude}, ${startNode.longitude})`);
+      console.log(`    Candidates: [${candidateStartNodes.map(n => `"${n.buildingName}"`).join(', ')}]`);
     }
 
     // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
@@ -136,34 +150,47 @@ export async function getRoute(
           { latitude: startNode.latitude, longitude: startNode.longitude },
           { type: 'final', label: 'Continue through the GopherWay' },
         ) ?? { steps: [], distance: 0, duration: 0 });
+    console.log(`[7] Mapbox seg 1: ${skipInitialMapbox ? 'SKIPPED' : `${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`}`);
 
     // 8. GT segment: A* from startNode -> routingTargetBuilding
+    console.log(`[8] A* pathfinding: "${startNode.buildingName}" -> "${routingTargetBuilding}"`);
     const astarResult = await astar(session, startNode.buildingName, routingTargetBuilding);
     if (!astarResult) {
-      console.error('A* could not find a path');
+      console.error('[8] A* could not find a path');
       res.status(404).send('No path found');
       return;
     }
 
     const { steps: gtSteps, weight } = astarResult;
+    console.log(`[8] A* result: ${gtSteps.length} steps, weight: ${Math.round(weight)}m`);
 
     // 9. Optional Mapbox segment 2: GT end -> disconnected building
     let mapboxSegment2: MapboxSegmentResult | null = null;
     if (disconnected && disconnectedCoords && gtSteps.length > 0) {
       const lastGtStep = gtSteps[gtSteps.length - 1];
+      console.log(`[9] Mapbox seg 2: GT exit (${lastGtStep.latitude}, ${lastGtStep.longitude}) -> disconnected building`);
       mapboxSegment2 = await buildMapboxSegment(
         { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude },
         disconnectedCoords,
         { type: 'final', label: `Walk to ${targetBuilding}` },
       );
+      console.log(`[9] Mapbox seg 2: ${mapboxSegment2 ? `${mapboxSegment2.steps.length} steps, ${Math.round(mapboxSegment2.distance)}m` : 'FAILED'}`);
+    } else {
+      console.log(`[9] Mapbox seg 2: N/A (connected building)`);
     }
 
     // 10. Aggregate and respond
     const result = aggregateRoute(mapboxSegment1, gtSteps, weight, mapboxSegment2);
     await incrementBuildingVisit(session, targetBuilding);
+    console.log(`\n---------- ROUTE COMPLETE ----------`);
+    console.log(`  Total distance: ${Math.round(result.totalDistance)}m`);
+    console.log(`  Total time:     ${Math.round(result.totalTime)}s`);
+    console.log(`  Segments:       ${result.steps.map(s => s.type).join(' -> ')}`);
+    console.log(`------------------------------------\n`);
     res.json(result);
   } catch (err: any) {
-    console.log('Error finding Route', err);
+    console.error(`\n[ERROR] Route failed: ${err.message}`);
+    console.error(err.stack);
     res.status(500).send('Failed finding Route');
   } finally {
     await session.close();
