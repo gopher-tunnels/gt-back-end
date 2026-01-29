@@ -149,6 +149,7 @@ export async function snapToNearestSidewalk(
 
 export interface MapboxDirectionsOptions {
   snapToSidewalk?: boolean;
+  radiusMeters?: number; // Search radius for matching coords to road network (default: 50)
 }
 
 export async function getMapboxWalkingDirections(
@@ -178,13 +179,14 @@ export async function getMapboxWalkingDirections(
   console.log(`[Mapbox] Request: (${snappedOrigin.latitude}, ${snappedOrigin.longitude}) -> (${snappedDestination.latitude}, ${snappedDestination.longitude})`);
   console.log(`[Mapbox] URL: walking/${snappedOrigin.longitude},${snappedOrigin.latitude};${snappedDestination.longitude},${snappedDestination.latitude}`);
 
+  const radius = options.radiusMeters ?? 50;
   const response = await mapboxClient.get(
     `walking/${snappedOrigin.longitude},${snappedOrigin.latitude};${snappedDestination.longitude},${snappedDestination.latitude}`,
     {
       params: {
         access_token: accessToken,
         alternatives: false,
-        radiuses: '15;15',
+        radiuses: `${radius};${radius}`,
         geometries: 'geojson',
         overview: 'full',
         steps: true,
