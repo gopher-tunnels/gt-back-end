@@ -4,7 +4,7 @@ import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { selectOptimalExitNode } from '../utils/routing/selectExitNode';
-import { getMapboxWalkingDirections } from './mapbox';
+import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
 import {
   fetchConnectedBuildingNodes,
   fetchAllBuildingNodes,
@@ -60,14 +60,19 @@ export function aggregateRoute(
 /**
  * Builds a Mapbox walking segment between two coordinates.
  * Consolidates duplicated Mapbox transformation logic.
+ *
+ * @param options.snapToSidewalk - If true, snap origin/destination to nearest sidewalk
+ *   to prevent Mapbox from using indoor routing when coords are inside the GopherWay.
+ *   Defaults to true for building entry/exit segments.
  */
 export async function buildMapboxSegment(
   origin: Coordinates,
   destination: Coordinates,
   finalInstruction: { type: 'enter' | 'forward' | 'elevator' | 'left' | 'right' | 'final'; label: string },
+  options: MapboxDirectionsOptions = { snapToSidewalk: true },
 ): Promise<MapboxSegmentResult | null> {
   try {
-    const mapboxDirections = await getMapboxWalkingDirections(origin, destination);
+    const mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
     const leg = mapboxDirections.routes[0].legs[0];
 
     const rawSteps: { coords: [number, number]; instruction?: string }[] = [
