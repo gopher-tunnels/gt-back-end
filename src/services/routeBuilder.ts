@@ -72,7 +72,25 @@ export async function buildMapboxSegment(
   options: MapboxDirectionsOptions = { snapToSidewalk: true },
 ): Promise<MapboxSegmentResult | null> {
   try {
-    const mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
+    let mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
+
+    // If snapping was enabled and no routes found, retry without snapping
+    // Snapped coords may land on non-routable features (parks, plazas, etc.)
+    // Use larger radius (100m) for campus buildings that may be far from roads
+    if (!mapboxDirections.routes?.length && options.snapToSidewalk) {
+      console.warn('[Mapbox] NoRoute with snapping - retrying without snap (radius: 100m)');
+      mapboxDirections = await getMapboxWalkingDirections(origin, destination, {
+        snapToSidewalk: false,
+        radiusMeters: 100,
+      });
+    }
+
+    // Validate Mapbox response has routes
+    if (!mapboxDirections.routes?.length || !mapboxDirections.routes[0]?.legs?.length) {
+      console.error('[Mapbox] No routes returned - code:', mapboxDirections.code, 'message:', mapboxDirections.message);
+      return null;
+    }
+
     const leg = mapboxDirections.routes[0].legs[0];
 
     // Build rawSteps with ALL coordinates from each step's geometry
@@ -100,6 +118,12 @@ export async function buildMapboxSegment(
         });
       });
     });
+
+    // Check if we have any steps after processing
+    if (rawSteps.length === 0) {
+      console.warn('[Mapbox] Route returned but no walkable steps extracted - leg.steps:', leg.steps?.length);
+      return null;
+    }
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
       buildingName: '',
