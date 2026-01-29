@@ -143,14 +143,26 @@ export async function getRoute(
     }
 
     // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
-    const mapboxSegment1: MapboxSegmentResult = skipInitialMapbox
-      ? { steps: [], distance: 0, duration: 0 }
-      : (await buildMapboxSegment(
-          userLocation,
-          { latitude: startNode.latitude, longitude: startNode.longitude },
-          { type: 'final', label: 'Continue through the GopherWay' },
-        ) ?? { steps: [], distance: 0, duration: 0 });
-    console.log(`[7] Mapbox seg 1: ${skipInitialMapbox ? 'SKIPPED' : `${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`}`);
+    let mapboxSegment1: MapboxSegmentResult;
+    if (skipInitialMapbox) {
+      mapboxSegment1 = { steps: [], distance: 0, duration: 0 };
+      console.log(`[7] Mapbox seg 1: SKIPPED (user inside building)`);
+    } else {
+      const segment = await buildMapboxSegment(
+        userLocation,
+        { latitude: startNode.latitude, longitude: startNode.longitude },
+        { type: 'final', label: 'Continue through the GopherWay' },
+      );
+      if (segment) {
+        mapboxSegment1 = segment;
+        console.log(`[7] Mapbox seg 1: ${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`);
+      } else {
+        // Mapbox failed - log warning and proceed with empty segment
+        console.warn(`[7] Mapbox seg 1: FAILED - proceeding with GT-only route`);
+        console.warn(`    User: (${userLocation.latitude}, ${userLocation.longitude}) -> Start: (${startNode.latitude}, ${startNode.longitude})`);
+        mapboxSegment1 = { steps: [], distance: 0, duration: 0 };
+      }
+    }
 
     // 8. GT segment: A* from startNode -> routingTargetBuilding
     console.log(`[8] A* pathfinding: "${startNode.buildingName}" -> "${routingTargetBuilding}"`);
