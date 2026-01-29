@@ -75,14 +75,31 @@ export async function buildMapboxSegment(
     const mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
     const leg = mapboxDirections.routes[0].legs[0];
 
-    const rawSteps: { coords: [number, number]; instruction?: string }[] = [
-      { coords: leg.steps[0]?.geometry?.coordinates?.[0] || [0, 0] },
-      ...leg.steps.slice(0, -1).map((step: any) => ({
-        coords: step?.geometry?.coordinates?.[1] || [0, 0],
-        instruction: step?.maneuver?.instruction,
-      })),
-      { coords: [destination.longitude, destination.latitude] }, //THIS ADDS THE ACTUAL DEST COORDS AS THE FINAL POINT
-    ];
+    // Build rawSteps with ALL coordinates from each step's geometry
+    // Instructions are placed on the first processed coord of each step
+    // so the "look ahead" display logic shows them at the right time
+    const rawSteps: { coords: [number, number]; instruction?: string }[] = [];
+
+    // Start with first coordinate of first step (no instruction - it gets picked up via look-ahead)
+    const firstCoord = leg.steps[0]?.geometry?.coordinates?.[0];
+    if (firstCoord) {
+      rawSteps.push({ coords: firstCoord, instruction: undefined });
+    }
+
+    // Process all steps except the arrival step
+    leg.steps.slice(0, -1).forEach((step: any, stepIndex: number) => {
+      const coords: [number, number][] = step?.geometry?.coordinates || [];
+      // Skip first coord of step 0 (already added above), include all coords for other steps
+      const startIdx = stepIndex === 0 ? 1 : 0;
+
+      coords.slice(startIdx).forEach((coord: [number, number], coordIndex: number) => {
+        rawSteps.push({
+          coords: coord,
+          // Instruction on first coord of each step's slice enables proper look-ahead display
+          instruction: coordIndex === 0 ? step?.maneuver?.instruction : undefined,
+        });
+      });
+    });
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
       buildingName: '',
