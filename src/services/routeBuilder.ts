@@ -3,8 +3,8 @@ import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
-import { incrementBuildingVisit } from './visits';
 import { ROUTING_CONFIG } from '../config/routing';
+import { incrementBuildingVisit } from './visits';
 
 export interface RouteResult {
   steps: { type: string; steps: RouteStep[] }[];

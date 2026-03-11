@@ -1,12 +1,49 @@
 import { readFile, writeFile } from 'fs/promises';
 import { resolve } from 'path';
-import type { Session } from 'neo4j-driver';
+import type { Session, Node, Path } from 'neo4j-driver';
 import { driver } from '../controller/db';
-import { astar } from './astar';
+import { getInstruction } from '../utils/routing/getInstruction';
+import type { RouteStep } from '../types/nodes';
 import { registerNode, setTunnelEdge, serializeGraph, loadGraph, CACHE_VERSION } from './multiLayerGraph';
 
 const CONCURRENCY = 20;
 const CACHE_PATH = resolve(__dirname, '../../graph.cache.json');
+
+async function runAstar(session: Session, startName: string, endName: string): Promise<{ steps: RouteStep[]; weight: number } | null> {
+  const { records } = await session.executeRead((tx) =>
+    tx.run(
+      `
+      MATCH (start:Node {building_name: $startName, node_type: 'building_node'})
+      WITH start
+      MATCH (end:Node {building_name: $endName, node_type: 'building_node'})
+      CALL apoc.algo.aStar(start, end, 'CONNECTED_TO', 'distance', 'latitude', 'longitude')
+      YIELD path, weight
+      RETURN path, weight
+      `,
+      { startName, endName },
+    ),
+  );
+
+  if (!records.length) return null;
+
+  const path = records[0].get('path') as Path;
+  const weight = records[0].get('weight') as number;
+  const nodes: Node[] = [path.start, ...path.segments.map((s) => s.end)];
+
+  return {
+    weight,
+    steps: nodes.map((node, index): RouteStep => ({
+      buildingName: node.properties.building_name,
+      latitude: node.properties.latitude,
+      longitude: node.properties.longitude,
+      id: node.identity.toNumber(),
+      floor: node.properties.floor,
+      nodeType: node.properties.node_type,
+      type: 'GT',
+      instruction: getInstruction(node, index, nodes),
+    })),
+  };
+}
 
 async function tryLoadCache(): Promise<boolean> {
   try {
@@ -24,20 +61,11 @@ async function tryLoadCache(): Promise<boolean> {
   }
 }
 
-/**
- * Attempts to load graph from disk cache only. Used when SKIP_GRAPH_BUILD=true.
- * Routes will fail gracefully if no cache exists.
- */
 export async function loadFromCacheIfExists(): Promise<void> {
   const loaded = await tryLoadCache();
   if (!loaded) console.warn('[Graph] No valid cache found — routes will fail. Run without SKIP_GRAPH_BUILD to build.');
 }
 
-/**
- * Loads all building_nodes and precomputes tunnel edges between every reachable pair.
- * Checks for a disk cache first (skipped if REBUILD_GRAPH=true).
- * After a fresh build, saves the cache to disk for subsequent startups.
- */
 export async function buildGraph(session: Session): Promise<void> {
   if (process.env.REBUILD_GRAPH !== 'true') {
     const loaded = await tryLoadCache();
@@ -65,39 +93,29 @@ export async function buildGraph(session: Session): Promise<void> {
   for (const node of buildingNodes) registerNode(node);
   console.log(`[Graph] Registered ${buildingNodes.length} building nodes`);
 
-  // All directed pairs (a→b) — both directions for correct turn instructions
   const pairs: [string, string][] = [];
-  for (const a of buildingNodes) {
-    for (const b of buildingNodes) {
-      if (a.buildingName !== b.buildingName) {
-        pairs.push([a.buildingName, b.buildingName]);
-      }
-    }
-  }
+  for (const a of buildingNodes)
+    for (const b of buildingNodes)
+      if (a.buildingName !== b.buildingName) pairs.push([a.buildingName, b.buildingName]);
 
   console.log(`[Graph] Precomputing ${pairs.length} tunnel routes (concurrency: ${CONCURRENCY})...`);
 
   let computed = 0;
-
   for (let i = 0; i < pairs.length; i += CONCURRENCY) {
-    const batch = pairs.slice(i, i + CONCURRENCY);
-
-    const results = await Promise.all(batch.map(async ([a, b]) => {
+    const results = await Promise.all(pairs.slice(i, i + CONCURRENCY).map(async ([a, b]) => {
       const s = driver.session({ database: 'neo4j' });
       try {
-        const result = await astar(s, a, b);
+        const result = await runAstar(s, a, b);
         if (result) setTunnelEdge(a, b, { cost: result.weight, steps: result.steps });
         return result ? 1 : 0;
       } finally {
         await s.close();
       }
     }));
-
     computed += results.reduce((sum, n) => sum + n, 0 as number);
   }
 
   console.log(`[Graph] Done — ${computed} tunnel edges precomputed`);
-
   const cache = serializeGraph();
   await writeFile(CACHE_PATH, JSON.stringify(cache), 'utf-8');
   console.log(`[Graph] Cache saved to ${CACHE_PATH}`);

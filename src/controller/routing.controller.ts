@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
 import { Coordinates } from '../types/nodes';
-import { incrementBuildingVisit } from '../services/visits';
 import { getAllNodes, getNode, findRoute, getGraphInfo } from '../services/multiLayerGraph';
 import { type RoutingPreference } from '../config/routing';
 import { haversineDistance } from '../utils/math';
@@ -13,6 +12,7 @@ import {
   findUserInsideBuilding,
   type ExecutedSegment,
 } from '../services/routeBuilder';
+import { incrementBuildingVisit } from '../services/visits';
 import { ROUTING_CONFIG } from '../config/routing';
 
 /**
