@@ -1,10 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { getCandidateStartNodes } from '../utils/routing/closestNodes';
-import { Coordinates, BuildingNode } from '../types/nodes';
+import { Coordinates } from '../types/nodes';
 import { incrementBuildingVisit } from '../services/visits';
-import { getBuildingCoords } from '../services/buildings';
 import { getAllNodes, getNode, findRoute, getGraphInfo } from '../services/multiLayerGraph';
 import { type RoutingPreference } from '../config/routing';
 import { haversineDistance } from '../utils/math';
@@ -51,11 +49,14 @@ export async function getRoute(
   const session = driver.session({ database: 'neo4j' });
 
   try {
-    const targetCoords = await getBuildingCoords(session, targetBuilding);
-    if (!targetCoords) {
+    const { records: coordRecords } = await session.executeRead((tx) =>
+      tx.run(`MATCH (b:Building {building_name: $name}) RETURN b.latitude AS latitude, b.longitude AS longitude`, { name: targetBuilding }),
+    );
+    if (!coordRecords.length || coordRecords[0].get('latitude') == null) {
       res.status(404).send('Building not found');
       return;
     }
+    const targetCoords: Coordinates = { latitude: coordRecords[0].get('latitude'), longitude: coordRecords[0].get('longitude') };
 
     // 1. Direct walk
     const directWalk = await handleDirectWalk(session, userLocation, targetCoords, targetBuilding);
@@ -63,17 +64,13 @@ export async function getRoute(
 
     const allNodes = getAllNodes();
 
-    // 2. Determine start node
+    // 2. Determine start node — inside building check, else nearest building_node
     const insideBuilding = findUserInsideBuilding(allNodes, userLocation);
     const skipInitialMapbox = !!insideBuilding;
-
-    // Ensure target exists in node list for getCandidateStartNodes
-    const syntheticTarget: BuildingNode = { buildingName: targetBuilding, ...targetCoords, id: 'synthetic' };
-    const nodesForSelection = getNode(targetBuilding) ? allNodes : [...allNodes, syntheticTarget];
-
-    const startNodeName = insideBuilding
-      ? insideBuilding.buildingName
-      : getCandidateStartNodes(nodesForSelection, userLocation, targetBuilding)[0]?.buildingName;
+    const startNodeName = insideBuilding?.buildingName
+      ?? allNodes.reduce((best, n) =>
+          haversineDistance(n, userLocation) < haversineDistance(best, userLocation) ? n : best,
+        ).buildingName;
 
     if (!startNodeName) {
       res.status(404).send('No path found');

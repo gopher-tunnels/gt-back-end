@@ -171,15 +171,11 @@ export async function getMapboxWalkingDirections(
   let snappedDestination = destination;
 
   if (options.snapToSidewalk) {
-    console.log(`[Mapbox] Snapping coordinates to sidewalk...`);
     [snappedOrigin, snappedDestination] = await Promise.all([
       snapToNearestSidewalk(origin, destination, true),
       snapToNearestSidewalk(destination, origin, false),
     ]);
   }
-
-  console.log(`[Mapbox] Request: (${snappedOrigin.latitude}, ${snappedOrigin.longitude}) -> (${snappedDestination.latitude}, ${snappedDestination.longitude})`);
-  console.log(`[Mapbox] URL: walking/${snappedOrigin.longitude},${snappedOrigin.latitude};${snappedDestination.longitude},${snappedDestination.latitude}`);
 
   const radius = options.radiusMeters ?? 50;
   const response = await mapboxClient.get(
