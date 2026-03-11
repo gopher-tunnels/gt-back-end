@@ -36,7 +36,11 @@ export async function getRoute(
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
-  const preference = (req.query.preference as RoutingPreference) ?? ROUTING_CONFIG.DEFAULT_PREFERENCE;
+  const validPreferences: RoutingPreference[] = ['indoor', 'balanced', 'fastest'];
+  const rawPreference = req.query.preference as string;
+  const preference: RoutingPreference = validPreferences.includes(rawPreference as RoutingPreference)
+    ? (rawPreference as RoutingPreference)
+    : ROUTING_CONFIG.DEFAULT_PREFERENCE;
   const userLocation: Coordinates = { latitude, longitude };
 
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {

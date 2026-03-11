@@ -84,7 +84,7 @@ export async function snapToNearestSidewalk(
   const roads = await queryNearbyRoads(coords, SNAP_CONFIG.SEARCH_RADIUS_METERS);
 
   if (roads.length === 0) {
-    console.log(`[Snap] No nearby roads found, using original coordinates`);
+    if (process.env.DEBUG_MAPBOX === 'true') console.log(`[Snap] No nearby roads found, using original coordinates`);
     return coords;
   }
 
@@ -128,7 +128,7 @@ export async function snapToNearestSidewalk(
     });
 
   if (scoredFeatures.length === 0) {
-    console.log(`[Snap] No suitable roads within ${SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS}m, using original coordinates`);
+    if (process.env.DEBUG_MAPBOX === 'true') console.log(`[Snap] No suitable roads within ${SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS}m, using original coordinates`);
     return coords;
   }
 
@@ -141,8 +141,10 @@ export async function snapToNearestSidewalk(
     latitude: best.geometry.coordinates[1],
   };
 
-  console.log(`[Snap] ${isOrigin ? 'Origin' : 'Destination'} snapped: (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}) -> (${snappedCoords.latitude.toFixed(6)}, ${snappedCoords.longitude.toFixed(6)})`);
-  console.log(`[Snap]   Distance: ${best.properties.tilequery.distance.toFixed(1)}m, Bearing: ${best.bearing.toFixed(0)}° (desired: ${normalizedDesiredBearing.toFixed(0)}°), Class: ${best.properties.class || 'unknown'}`);
+  if (process.env.DEBUG_MAPBOX === 'true') {
+    console.log(`[Snap] ${isOrigin ? 'Origin' : 'Destination'} snapped: (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}) -> (${snappedCoords.latitude.toFixed(6)}, ${snappedCoords.longitude.toFixed(6)})`);
+    console.log(`[Snap]   Distance: ${best.properties.tilequery.distance.toFixed(1)}m, Bearing: ${best.bearing.toFixed(0)}° (desired: ${normalizedDesiredBearing.toFixed(0)}°), Class: ${best.properties.class || 'unknown'}`);
+  }
 
   return snappedCoords;
 }

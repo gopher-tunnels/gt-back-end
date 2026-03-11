@@ -22,7 +22,7 @@ export const getInstruction = (
     [current.properties.longitude, current.properties.latitude],
     [nextNode.properties.longitude, nextNode.properties.latitude],
   );
-  const delta = b1 - b0;
+  const delta = ((b1 - b0 + 540) % 360) - 180;
   if (Math.abs(delta) < 20) return { type: 'forward', label: 'Head straight' };
   const turn = delta > 0 ? 'right' : 'left';
   return { type: turn, label: `Take a ${turn}` };

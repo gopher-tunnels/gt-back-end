@@ -4,7 +4,6 @@ import { buildGraph, loadFromCacheIfExists } from './services/graphPrecomputer';
 
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
-// import axios from "axios";
 
 import swaggerUi from 'swagger-ui-express';
 import swaggerOutput from './swagger_output.json';
