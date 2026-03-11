@@ -40,7 +40,7 @@ export async function astar(
   const path = records[0].get('path') as Path;
   const weight = records[0].get('weight') as number;
 
-  const nodes: Node[] = [path.start, ...path.segments.map((s: any) => s.end)];
+  const nodes: Node[] = [path.start, ...path.segments.map((s) => s.end)];
 
   const steps: RouteStep[] = nodes.map((node: Node, index): RouteStep => ({
     buildingName: node.properties.building_name,

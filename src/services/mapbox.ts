@@ -194,9 +194,11 @@ export async function getMapboxWalkingDirections(
     },
   );
   const data = response.data;
-  if (data.waypoints) {
-    console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w: any) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
+  if (process.env.DEBUG_MAPBOX === 'true') {
+    if (data.waypoints) {
+      console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w: { location: [number, number] }) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
+    }
+    console.log(`[Mapbox] Route distance: ${data.routes?.[0]?.distance}m, duration: ${data.routes?.[0]?.duration}s`);
   }
-  console.log(`[Mapbox] Route distance: ${data.routes?.[0]?.distance}m, duration: ${data.routes?.[0]?.duration}s`);
   return data;
 }

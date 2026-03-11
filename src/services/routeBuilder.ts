@@ -1,21 +1,13 @@
-// src/services/routeBuilder.ts
 import type { Session } from 'neo4j-driver';
 import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
-import { selectOptimalExitNode } from '../utils/routing/selectExitNode';
 import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
-import {
-  fetchConnectedBuildingNodes,
-  fetchAllBuildingNodes,
-} from './buildings';
 import { incrementBuildingVisit } from './visits';
 import { ROUTING_CONFIG } from '../config/routing';
 
-// the units of the distance is meters
-// the units of the time is seconds
 export interface RouteResult {
-  steps: { type: string; steps: RouteStep[] }[]; // In order of the path.
+  steps: { type: string; steps: RouteStep[] }[];
   totalDistance: number;
   totalTime: number;
 }
@@ -26,44 +18,23 @@ export interface MapboxSegmentResult {
   duration: number;
 }
 
-/**
- * Aggregates route segments into a final RouteResult.
- */
-export function aggregateRoute(
-  mapboxSegment1: MapboxSegmentResult,
-  gtSteps: RouteStep[],
-  gtWeight: number,
-  mapboxSegment2: MapboxSegmentResult | null,
-): RouteResult {
-  const steps: { type: string; steps: RouteStep[] }[] = [
-    { type: 'mapbox', steps: mapboxSegment1.steps },
-    { type: 'GT', steps: gtSteps },
-  ];
+export interface ExecutedSegment {
+  type: string;
+  steps: RouteStep[];
+  distance: number;
+  duration: number;
+}
 
-  if (mapboxSegment2 && mapboxSegment2.steps.length > 0) {
-    steps.push({ type: 'mapbox', steps: mapboxSegment2.steps });
-  }
-
-  const totalDistance =
-    gtWeight +
-    mapboxSegment1.distance +
-    (mapboxSegment2?.distance ?? 0);
-
-  const totalTime =
-    Math.round(gtWeight / ROUTING_CONFIG.TUNNEL_ESTIMATE_FACTOR) +
-    mapboxSegment1.duration +
-    (mapboxSegment2?.duration ?? 0);
-
-  return { steps, totalDistance, totalTime };
+export function aggregateRoute(segments: ExecutedSegment[]): RouteResult {
+  return {
+    steps: segments.map((s) => ({ type: s.type, steps: s.steps })),
+    totalDistance: segments.reduce((sum, s) => sum + s.distance, 0),
+    totalTime: segments.reduce((sum, s) => sum + s.duration, 0),
+  };
 }
 
 /**
  * Builds a Mapbox walking segment between two coordinates.
- * Consolidates duplicated Mapbox transformation logic.
- *
- * @param options.snapToSidewalk - If true, snap origin/destination to nearest sidewalk
- *   to prevent Mapbox from using indoor routing when coords are inside the GopherWay.
- *   Defaults to true for building entry/exit segments.
  */
 export async function buildMapboxSegment(
   origin: Coordinates,
@@ -74,9 +45,6 @@ export async function buildMapboxSegment(
   try {
     let mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
 
-    // If snapping was enabled and no routes found, retry without snapping
-    // Snapped coords may land on non-routable features (parks, plazas, etc.)
-    // Use larger radius (100m) for campus buildings that may be far from roads
     if (!mapboxDirections.routes?.length && options.snapToSidewalk) {
       console.warn('[Mapbox] NoRoute with snapping - retrying without snap (radius: 100m)');
       mapboxDirections = await getMapboxWalkingDirections(origin, destination, {
@@ -85,45 +53,30 @@ export async function buildMapboxSegment(
       });
     }
 
-    // Validate Mapbox response has routes
     if (!mapboxDirections.routes?.length || !mapboxDirections.routes[0]?.legs?.length) {
-      console.error('[Mapbox] No routes returned - code:', mapboxDirections.code, 'message:', mapboxDirections.message);
+      console.error('[Mapbox] No routes returned - code:', mapboxDirections.code);
       return null;
     }
 
     const leg = mapboxDirections.routes[0].legs[0];
-
-    // Build rawSteps with ALL coordinates from each step's geometry
-    // Instructions are placed on the first processed coord of each step
-    // so the "look ahead" display logic shows them at the right time
     const rawSteps: { coords: [number, number]; instruction?: string }[] = [];
 
-    // Start with first coordinate of first step (no instruction - it gets picked up via look-ahead)
     const firstCoord = leg.steps[0]?.geometry?.coordinates?.[0];
-    if (firstCoord) {
-      rawSteps.push({ coords: firstCoord, instruction: undefined });
-    }
+    if (firstCoord) rawSteps.push({ coords: firstCoord, instruction: undefined });
 
-    // Process all steps except the arrival step
-    leg.steps.slice(0, -1).forEach((step: any, stepIndex: number) => {
+    interface MapboxStep { geometry?: { coordinates: [number, number][] }; maneuver?: { instruction: string } }
+    leg.steps.slice(0, -1).forEach((step: MapboxStep, stepIndex: number) => {
       const coords: [number, number][] = step?.geometry?.coordinates || [];
-      // Skip first coord of step 0 (already added above), include all coords for other steps
       const startIdx = stepIndex === 0 ? 1 : 0;
-
       coords.slice(startIdx).forEach((coord: [number, number], coordIndex: number) => {
         rawSteps.push({
           coords: coord,
-          // Instruction on first coord of each step's slice enables proper look-ahead display
           instruction: coordIndex === 0 ? step?.maneuver?.instruction : undefined,
         });
       });
     });
 
-    // Check if we have any steps after processing
-    if (rawSteps.length === 0) {
-      console.warn('[Mapbox] Route returned but no walkable steps extracted - leg.steps:', leg.steps?.length);
-      return null;
-    }
+    if (rawSteps.length === 0) return null;
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
       buildingName: '',
@@ -151,62 +104,7 @@ export async function buildMapboxSegment(
 }
 
 /**
- * Resolves routing parameters for normal (connected) buildings.
- */
-export async function resolveConnectedTarget(
-  session: Session,
-  targetBuilding: string,
-): Promise<{ routingTargetBuilding: string; buildingNodesForRouting: BuildingNode[] } | null> {
-  const buildingNodesForRouting = await fetchConnectedBuildingNodes(session, targetBuilding);
-
-  if (!buildingNodesForRouting.length) {
-    console.error('No connected building nodes found for target', targetBuilding);
-    return null;
-  }
-
-  return { routingTargetBuilding: targetBuilding, buildingNodesForRouting };
-}
-
-/**
- * Resolves routing parameters for disconnected buildings using optimal exit selection.
- */
-export async function resolveDisconnectedTarget(
-  session: Session,
-  targetBuilding: string,
-  userLocation: Coordinates,
-  disconnectedCoords: Coordinates | null,
-): Promise<{
-  disconnectedCoords: Coordinates;
-  routingTargetBuilding: string;
-  buildingNodesForRouting: BuildingNode[];
-} | null> {
-  if (!disconnectedCoords) {
-    console.error('Disconnected building has no latitude/longitude:', targetBuilding);
-    return null;
-  }
-
-  const allBuildingNodes = await fetchAllBuildingNodes(session);
-  if (!allBuildingNodes.length) {
-    console.error('No building nodes available for routing');
-    return null;
-  }
-
-  const optimalExit = selectOptimalExitNode(allBuildingNodes, disconnectedCoords, userLocation);
-  if (!optimalExit) {
-    console.error('Could not find optimal exit node');
-    return null;
-  }
-
-  return {
-    disconnectedCoords,
-    routingTargetBuilding: optimalExit.buildingName,
-    buildingNodesForRouting: allBuildingNodes,
-  };
-}
-
-/**
- * Handles early exit when user is close to any building (connected or disconnected).
- * Returns a direct Mapbox-only route if within MIN_DIRECT_WALK_METERS, or null to continue with tunnel routing.
+ * Handles early exit when user is close enough for a direct walk (< MIN_DIRECT_WALK_METERS).
  */
 export async function handleDirectWalk(
   session: Session,
@@ -214,25 +112,17 @@ export async function handleDirectWalk(
   targetCoords: Coordinates,
   targetBuilding: string,
 ): Promise<RouteResult | null> {
-  const directWalkDistKm = haversineDistance(userLocation, targetCoords);
-  const directWalkDistMeters = directWalkDistKm * 1000;
-
-  if (directWalkDistMeters >= ROUTING_CONFIG.MIN_DIRECT_WALK_METERS) {
-    return null; // Continue with tunnel routing
-  }
+  const distMeters = haversineDistance(userLocation, targetCoords) * 1000;
+  if (distMeters >= ROUTING_CONFIG.MIN_DIRECT_WALK_METERS) return null;
 
   const segment = await buildMapboxSegment(
     userLocation,
     targetCoords,
     { type: 'final', label: `Arrive at ${targetBuilding}` },
   );
-
-  if (!segment) {
-    return null; // Mapbox failed, fall back to tunnel routing
-  }
+  if (!segment) return null;
 
   await incrementBuildingVisit(session, targetBuilding);
-
   return {
     steps: [{ type: 'mapbox', steps: segment.steps }],
     totalDistance: segment.distance,
@@ -242,24 +132,14 @@ export async function handleDirectWalk(
 
 /**
  * Finds if user is inside a building (within INSIDE_BUILDING_METERS of a building_node).
- * Returns the building node the user is in, or null if not inside any building.
  */
 export function findUserInsideBuilding(
   buildingNodes: BuildingNode[],
   userLocation: Coordinates,
 ): BuildingNode | null {
   const thresholdKm = ROUTING_CONFIG.INSIDE_BUILDING_METERS / 1000;
-
   for (const node of buildingNodes) {
-    const distKm = haversineDistance(userLocation, {
-      latitude: node.latitude,
-      longitude: node.longitude,
-    });
-    if (distKm <= thresholdKm) {
-      return node;
-    }
+    if (haversineDistance(userLocation, node) <= thresholdKm) return node;
   }
-
   return null;
 }
-

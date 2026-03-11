@@ -1,5 +1,6 @@
 import express, { Express, Request } from 'express';
 import { driver, verifyConnection } from './controller/db';
+import { buildGraph, loadFromCacheIfExists } from './services/graphPrecomputer';
 
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
@@ -34,7 +35,22 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerOutput));
 const requestRateLimiter = buildRateLimiter({
   validateXForwardedFor: trustProxy !== false,
 });
-app.use('/api/routing', requestRateLimiter, requestSecurityMiddleware, routingRoutes);
+// app.use('/api/routing', requestRateLimiter, requestSecurityMiddleware, routingRoutes);
+
+app.use(
+  '/api/routing',
+  requestRateLimiter,
+  (req, res, next) => {
+    // Allow all GET requests without HMAC headers
+    if (req.method === 'GET') {
+      return next();
+    }
+
+    // Enforce HMAC security for non-GET methods (POST, PUT, PATCH, DELETE)
+    return requestSecurityMiddleware(req as any, res, next);
+  },
+  routingRoutes,
+);
 
 // close exit app when app is interrupted
 process.on('SIGINT', async () => {
@@ -43,8 +59,20 @@ process.on('SIGINT', async () => {
 
 // for testing
 // starts app regardless of db connection.
-verifyConnection().finally(() => {
+verifyConnection().then(async () => {
+  if (process.env.SKIP_GRAPH_BUILD === 'true') {
+    await loadFromCacheIfExists();
+  } else {
+    const session = driver.session({ database: 'neo4j' });
+    try {
+      await buildGraph(session);
+    } finally {
+      await session.close();
+    }
+  }
+}).finally(() => {
   app.listen(port, () => {
-    console.log(`\nServer running on http://localhost:${port}\n`);
+    console.log(`\nServer running on http://localhost:${port}`);
+    console.log(`API docs:   http://localhost:${port}/api-docs\n`);
   });
 });
