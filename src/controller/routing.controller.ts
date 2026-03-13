@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { Coordinates } from '../types/nodes';
+import { Coordinates, BuildingNode } from '../types/nodes';
 import { getAllNodes, getNode, findRoute, getGraphInfo } from '../services/multiLayerGraph';
 import { type RoutingPreference } from '../config/routing';
 import { haversineDistance } from '../utils/math';
@@ -14,6 +14,13 @@ import {
 } from '../services/routeBuilder';
 import { incrementBuildingVisit } from '../services/visits';
 import { ROUTING_CONFIG } from '../config/routing';
+
+function mapboxCoords(node: BuildingNode, reference: Coordinates): Coordinates {
+  if (!node.entranceNodes?.length) return node;
+  return node.entranceNodes.reduce((best, e) =>
+    haversineDistance(e, reference) < haversineDistance(best, reference) ? e : best,
+  );
+}
 
 /**
  * GET /route
@@ -100,7 +107,7 @@ export async function getRoute(
       const firstNode = routeSegments.length > 0 ? routeSegments[0].from : getNode(routeTarget)!;
       const seg = await buildMapboxSegment(
         userLocation,
-        firstNode,
+        mapboxCoords(firstNode, userLocation),
         { type: 'enter', label: 'Enter the GopherWay' },
       );
       if (seg) executed.push({ type: 'mapbox', ...seg });
@@ -143,8 +150,8 @@ export async function getRoute(
           });
         } else {
           const seg = await buildMapboxSegment(
-            segment.from,
-            segment.to,
+            mapboxCoords(segment.from, segment.to),
+            mapboxCoords(segment.to, segment.from),
             { type: 'forward', label: 'Continue walking' },
           );
           if (seg) executed.push({ type: 'mapbox', ...seg });
@@ -158,7 +165,7 @@ export async function getRoute(
         ? routeSegments[routeSegments.length - 1].to
         : getNode(routeTarget)!;
       const seg = await buildMapboxSegment(
-        lastNode,
+        mapboxCoords(lastNode, targetCoords),
         targetCoords,
         { type: 'final', label: `Walk to ${targetBuilding}` },
       );

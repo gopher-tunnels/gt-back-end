@@ -79,16 +79,51 @@ export async function buildGraph(session: Session): Promise<void> {
   const { records } = await session.executeRead((tx) =>
     tx.run(`
       MATCH (n:Node { node_type: "building_node" })
-      RETURN id(n) AS id, n.building_name AS name, n.latitude AS latitude, n.longitude AS longitude
+      OPTIONAL MATCH (b:Building { building_name: n.building_name })
+      RETURN id(n) AS id, n.building_name AS name, n.latitude AS latitude, n.longitude AS longitude,
+             b.entrance_nodes AS entranceNodes
     `),
   );
 
-  const buildingNodes = records.map((r) => ({
-    id: r.get('id').toNumber(),
-    buildingName: r.get('name') as string,
-    latitude: r.get('latitude') as number,
-    longitude: r.get('longitude') as number,
-  }));
+  const buildingNodes = records.map((r) => {
+    const entranceNodesRaw = r.get('entranceNodes') as string | null;
+    let entranceNodes: { latitude: number; longitude: number }[] | undefined;
+    if (entranceNodesRaw) {
+      try {
+        const parsed = JSON.parse(entranceNodesRaw) as { lon: number; lat: number }[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          entranceNodes = parsed.map((e) => ({ latitude: e.lat, longitude: e.lon }));
+        }
+      } catch {
+        console.warn(`[Graph] Failed to parse entrance_nodes for ${r.get('name')}`);
+      }
+    }
+    return {
+      id: r.get('id').toNumber(),
+      buildingName: r.get('name') as string,
+      latitude: r.get('latitude') as number,
+      longitude: r.get('longitude') as number,
+      ...(entranceNodes ? { entranceNodes } : {}),
+    };
+  });
+
+  // GRAPH_JSON_PATH: override entrance_nodes from a local JSON file (useful for testing without re-importing to Neo4j)
+  const graphJsonPath = process.env.GRAPH_JSON_PATH;
+  if (graphJsonPath) {
+    const raw = await readFile(resolve(graphJsonPath), 'utf-8');
+    const graphData = JSON.parse(raw) as { nodes: { type: string; building_name?: string; entrance_nodes?: { lon: number; lat: number }[] }[] };
+    const entranceOverrides = new Map<string, { latitude: number; longitude: number }[]>();
+    for (const node of graphData.nodes) {
+      if (node.type === 'building' && node.building_name && node.entrance_nodes?.length) {
+        entranceOverrides.set(node.building_name, node.entrance_nodes.map((e) => ({ latitude: e.lat, longitude: e.lon })));
+      }
+    }
+    for (const node of buildingNodes) {
+      const override = entranceOverrides.get(node.buildingName);
+      if (override) node.entranceNodes = override;
+    }
+    console.log(`[Graph] Applied entrance_nodes overrides from ${graphJsonPath} (${entranceOverrides.size} buildings)`);
+  }
 
   for (const node of buildingNodes) registerNode(node);
   console.log(`[Graph] Registered ${buildingNodes.length} building nodes`);

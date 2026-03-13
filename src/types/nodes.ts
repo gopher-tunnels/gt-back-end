@@ -6,6 +6,8 @@ export interface Coordinates {
 export interface BuildingNode extends Coordinates {
   buildingName: string;
   id: number | string;
+  /** Outdoor entrance points for Mapbox routing. Closest one to the reference point is used. Falls back to latitude/longitude if absent. */
+  entranceNodes?: Coordinates[];
 }
 
 export interface RouteStep extends BuildingNode {

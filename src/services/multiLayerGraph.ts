@@ -2,7 +2,7 @@ import type { BuildingNode, RouteStep } from '../types/nodes';
 import { haversineDistance } from '../utils/math';
 import { OUTDOOR_PENALTY_BY_PREFERENCE, type RoutingPreference, ROUTING_CONFIG } from '../config/routing';
 
-export const CACHE_VERSION = 1;
+export const CACHE_VERSION = 3;
 
 export interface GraphCache {
   version: number;
