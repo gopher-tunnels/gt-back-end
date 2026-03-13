@@ -5,7 +5,7 @@ import { getCandidateStartNodes } from '../utils/routing/closestNodes';
 import { Coordinates, BuildingNode } from '../types/nodes';
 import { astar } from '../services/astar';
 import { incrementBuildingVisit } from '../services/visits';
-import { isDisconnectedBuilding, getBuildingCoords } from '../services/buildings';
+import { isDisconnectedBuilding, getBuildingCoords, getBuildingEntranceNodes } from '../services/buildings';
 import {
   aggregateRoute,
   buildMapboxSegment,
@@ -15,6 +15,7 @@ import {
   findUserInsideBuilding,
   type MapboxSegmentResult,
 } from '../services/routeBuilder';
+import { closestEntranceCoords } from '../utils/routing/closestEntrance';
 
 /**
  * GET /route
@@ -143,26 +144,18 @@ export async function getRoute(
     }
 
     // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
-    let mapboxSegment1: MapboxSegmentResult;
-    if (skipInitialMapbox) {
-      mapboxSegment1 = { steps: [], distance: 0, duration: 0 };
-      console.log(`[7] Mapbox seg 1: SKIPPED (user inside building)`);
-    } else {
-      const segment = await buildMapboxSegment(
-        userLocation,
-        { latitude: startNode.latitude, longitude: startNode.longitude },
-        { type: 'final', label: 'Continue through the GopherWay' },
-      );
-      if (segment) {
-        mapboxSegment1 = segment;
-        console.log(`[7] Mapbox seg 1: ${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`);
-      } else {
-        // Mapbox failed - log warning and proceed with empty segment
-        console.warn(`[7] Mapbox seg 1: FAILED - proceeding with GT-only route`);
-        console.warn(`    User: (${userLocation.latitude}, ${userLocation.longitude}) -> Start: (${startNode.latitude}, ${startNode.longitude})`);
-        mapboxSegment1 = { steps: [], distance: 0, duration: 0 };
-      }
-    }
+    const startNodeEntrances = skipInitialMapbox
+      ? []
+      : await getBuildingEntranceNodes(session, startNode.buildingName);
+    const seg1Dest = closestEntranceCoords(startNodeEntrances, userLocation, startNode);
+    const mapboxSegment1: MapboxSegmentResult = skipInitialMapbox
+      ? { steps: [], distance: 0, duration: 0 }
+      : (await buildMapboxSegment(
+          userLocation,
+          seg1Dest,
+          { type: 'final', label: 'Continue through the GopherWay' },
+        ) ?? { steps: [], distance: 0, duration: 0 });
+    console.log(`[7] Mapbox seg 1: ${skipInitialMapbox ? 'SKIPPED' : `${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`}`);
 
     // 8. GT segment: A* from startNode -> routingTargetBuilding
     console.log(`[8] A* pathfinding: "${startNode.buildingName}" -> "${routingTargetBuilding}"`);
@@ -180,10 +173,14 @@ export async function getRoute(
     let mapboxSegment2: MapboxSegmentResult | null = null;
     if (disconnected && disconnectedCoords && gtSteps.length > 0) {
       const lastGtStep = gtSteps[gtSteps.length - 1];
-      console.log(`[9] Mapbox seg 2: GT exit (${lastGtStep.latitude}, ${lastGtStep.longitude}) -> disconnected building`);
+      const gtExit = { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude };
+      const exitBuildingEntrances = await getBuildingEntranceNodes(session, lastGtStep.buildingName ?? '');
+      const seg2Origin = closestEntranceCoords(exitBuildingEntrances, disconnectedCoords, gtExit);
+      const seg2Dest = closestEntranceCoords(targetCoords?.entranceNodes, seg2Origin, disconnectedCoords);
+      console.log(`[9] Mapbox seg 2: GT exit (${seg2Origin.latitude}, ${seg2Origin.longitude}) -> disconnected building`);
       mapboxSegment2 = await buildMapboxSegment(
-        { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude },
-        disconnectedCoords,
+        seg2Origin,
+        seg2Dest,
         { type: 'final', label: `Walk to ${targetBuilding}` },
       );
       console.log(`[9] Mapbox seg 2: ${mapboxSegment2 ? `${mapboxSegment2.steps.length} steps, ${Math.round(mapboxSegment2.distance)}m` : 'FAILED'}`);

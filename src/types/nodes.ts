@@ -3,9 +3,15 @@ export interface Coordinates {
   longitude: number;
 }
 
+export interface EntranceNode {
+  lon: number;
+  lat: number;
+}
+
 export interface BuildingNode extends Coordinates {
   buildingName: string;
   id: number | string;
+  entranceNodes?: EntranceNode[];
 }
 
 export interface RouteStep extends BuildingNode {

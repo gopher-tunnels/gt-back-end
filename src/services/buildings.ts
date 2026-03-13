@@ -1,6 +1,15 @@
 // src/services/buildings.ts
 import type { Session } from 'neo4j-driver';
-import type { BuildingNode, Coordinates } from '../types/nodes';
+import type { BuildingNode, Coordinates, EntranceNode } from '../types/nodes';
+
+function parseEntranceNodes(raw: string | null): EntranceNode[] | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Checks whether a building name corresponds to a Disconnected_Building node.
@@ -58,7 +67,7 @@ export async function fetchConnectedBuildingNodes(
              connected.building_name AS name,
              connected.longitude AS longitude,
              connected.latitude AS latitude
-      `,
+`,
       { targetBuilding },
     ),
   );
@@ -80,13 +89,14 @@ export async function fetchConnectedBuildingNodes(
 export async function getBuildingCoords(
   session: Session,
   buildingName: string,
-): Promise<Coordinates | null> {
+): Promise<(Coordinates & { entranceNodes?: EntranceNode[] }) | null> {
   const { records } = await session.executeRead((tx) =>
     tx.run(
       `
       MATCH (b:Building {building_name: $name})
       RETURN b.latitude AS latitude,
-             b.longitude AS longitude
+             b.longitude AS longitude,
+             b.entrance_nodes AS entrance_nodes
       `,
       { name: buildingName },
     ),
@@ -102,7 +112,11 @@ export async function getBuildingCoords(
     return null;
   }
 
-  return { latitude, longitude };
+  return {
+    latitude,
+    longitude,
+    entranceNodes: parseEntranceNodes(rec.get('entrance_nodes')),
+  };
 }
 
 /**
@@ -125,7 +139,7 @@ export async function fetchAllBuildingNodes(
              n.building_name AS building_name,
              n.latitude AS latitude,
              n.longitude AS longitude
-      `,
+`,
     ),
   );
 
@@ -135,4 +149,26 @@ export async function fetchAllBuildingNodes(
     latitude: record.get('latitude'),
     longitude: record.get('longitude'),
   }));
+}
+
+/**
+ * Fetches entrance_nodes for a single building by name.
+ * Lightweight — only called once per request after the start node is selected.
+ */
+export async function getBuildingEntranceNodes(
+  session: Session,
+  buildingName: string,
+): Promise<EntranceNode[]> {
+  const { records } = await session.executeRead((tx) =>
+    tx.run(
+      `
+      MATCH (b:Building {building_name: $name})
+      RETURN b.entrance_nodes AS entrance_nodes
+      `,
+      { name: buildingName },
+    ),
+  );
+
+  if (!records.length) return [];
+  return parseEntranceNodes(records[0].get('entrance_nodes')) ?? [];
 }
