@@ -256,6 +256,14 @@ function buildPathVariants(pathAndQuery: string): string[] {
   const variants = new Set<string>([primary]);
   const normalized = normalizeQueryEncoding(primary);
   variants.add(normalized);
+
+  // Stop '&' from deliminating request.
+  if (primary.includes('%26')) {
+    const decoded = primary.replace(/%26/gi, '&');
+    variants.add(decoded);
+    variants.add(normalizeQueryEncoding(decoded));
+  }
+
   return Array.from(variants);
 }
 

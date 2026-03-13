@@ -4,7 +4,7 @@ import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
 import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { selectOptimalExitNode } from '../utils/routing/selectExitNode';
-import { getMapboxWalkingDirections } from './mapbox';
+import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
 import {
   fetchConnectedBuildingNodes,
   fetchAllBuildingNodes,
@@ -60,24 +60,70 @@ export function aggregateRoute(
 /**
  * Builds a Mapbox walking segment between two coordinates.
  * Consolidates duplicated Mapbox transformation logic.
+ *
+ * @param options.snapToSidewalk - If true, snap origin/destination to nearest sidewalk
+ *   to prevent Mapbox from using indoor routing when coords are inside the GopherWay.
+ *   Defaults to true for building entry/exit segments.
  */
 export async function buildMapboxSegment(
   origin: Coordinates,
   destination: Coordinates,
   finalInstruction: { type: 'enter' | 'forward' | 'elevator' | 'left' | 'right' | 'final'; label: string },
+  options: MapboxDirectionsOptions = { snapToSidewalk: true },
 ): Promise<MapboxSegmentResult | null> {
   try {
-    const mapboxDirections = await getMapboxWalkingDirections(origin, destination);
+    let mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
+
+    // If snapping was enabled and no routes found, retry without snapping
+    // Snapped coords may land on non-routable features (parks, plazas, etc.)
+    // Use larger radius (100m) for campus buildings that may be far from roads
+    if (!mapboxDirections.routes?.length && options.snapToSidewalk) {
+      console.warn('[Mapbox] NoRoute with snapping - retrying without snap (radius: 100m)');
+      mapboxDirections = await getMapboxWalkingDirections(origin, destination, {
+        snapToSidewalk: false,
+        radiusMeters: 100,
+      });
+    }
+
+    // Validate Mapbox response has routes
+    if (!mapboxDirections.routes?.length || !mapboxDirections.routes[0]?.legs?.length) {
+      console.error('[Mapbox] No routes returned - code:', mapboxDirections.code, 'message:', mapboxDirections.message);
+      return null;
+    }
+
     const leg = mapboxDirections.routes[0].legs[0];
 
-    const rawSteps: { coords: [number, number]; instruction?: string }[] = [
-      { coords: leg.steps[0]?.geometry?.coordinates?.[0] || [0, 0] },
-      ...leg.steps.slice(0, -1).map((step: any) => ({
-        coords: step?.geometry?.coordinates?.[1] || [0, 0],
-        instruction: step?.maneuver?.instruction,
-      })),
-      { coords: [destination.longitude, destination.latitude] }, //THIS ADDS THE ACTUAL DEST COORDS AS THE FINAL POINT
-    ];
+    // Build rawSteps with ALL coordinates from each step's geometry
+    // Instructions are placed on the first processed coord of each step
+    // so the "look ahead" display logic shows them at the right time
+    const rawSteps: { coords: [number, number]; instruction?: string }[] = [];
+
+    // Start with first coordinate of first step (no instruction - it gets picked up via look-ahead)
+    const firstCoord = leg.steps[0]?.geometry?.coordinates?.[0];
+    if (firstCoord) {
+      rawSteps.push({ coords: firstCoord, instruction: undefined });
+    }
+
+    // Process all steps except the arrival step
+    leg.steps.slice(0, -1).forEach((step: any, stepIndex: number) => {
+      const coords: [number, number][] = step?.geometry?.coordinates || [];
+      // Skip first coord of step 0 (already added above), include all coords for other steps
+      const startIdx = stepIndex === 0 ? 1 : 0;
+
+      coords.slice(startIdx).forEach((coord: [number, number], coordIndex: number) => {
+        rawSteps.push({
+          coords: coord,
+          // Instruction on first coord of each step's slice enables proper look-ahead display
+          instruction: coordIndex === 0 ? step?.maneuver?.instruction : undefined,
+        });
+      });
+    });
+
+    // Check if we have any steps after processing
+    if (rawSteps.length === 0) {
+      console.warn('[Mapbox] Route returned but no walkable steps extracted - leg.steps:', leg.steps?.length);
+      return null;
+    }
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
       buildingName: '',
