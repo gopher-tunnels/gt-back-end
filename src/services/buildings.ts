@@ -2,13 +2,10 @@
 import type { Session } from 'neo4j-driver';
 import type { BuildingNode, Coordinates, EntranceNode } from '../types/nodes';
 
-function parseEntranceNodes(raw: string | null): EntranceNode[] | undefined {
-  if (!raw) return undefined;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
+function parseEntrancePoints(points: { x: number; y: number }[] | null): EntranceNode[] | undefined {
+  if (!points?.length) return undefined;
+  // Neo4j Point objects use .x = longitude, .y = latitude (SRID 4326)
+  return points.map((p) => ({ lon: p.x, lat: p.y }));
 }
 
 /**
@@ -22,7 +19,7 @@ export async function isDisconnectedBuilding(
     tx.run(
       `
       MATCH (b:Building {building_name: $name})
-      RETURN b:Disconnected_Building AS isDisconnected
+      RETURN NOT b:TunnelBuilding AS isDisconnected
       `,
       { name: buildingName },
     ),
@@ -96,7 +93,7 @@ export async function getBuildingCoords(
       MATCH (b:Building {building_name: $name})
       RETURN b.latitude AS latitude,
              b.longitude AS longitude,
-             b.entrance_nodes AS entrance_nodes
+             b.entrance_points AS entrance_points
       `,
       { name: buildingName },
     ),
@@ -115,7 +112,7 @@ export async function getBuildingCoords(
   return {
     latitude,
     longitude,
-    entranceNodes: parseEntranceNodes(rec.get('entrance_nodes')),
+    entranceNodes: parseEntrancePoints(rec.get('entrance_points')),
   };
 }
 
@@ -163,12 +160,12 @@ export async function getBuildingEntranceNodes(
     tx.run(
       `
       MATCH (b:Building {building_name: $name})
-      RETURN b.entrance_nodes AS entrance_nodes
+      RETURN b.entrance_points AS entrance_points
       `,
       { name: buildingName },
     ),
   );
 
   if (!records.length) return [];
-  return parseEntranceNodes(records[0].get('entrance_nodes')) ?? [];
+  return parseEntrancePoints(records[0].get('entrance_points')) ?? [];
 }
