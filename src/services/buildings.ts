@@ -2,10 +2,13 @@
 import type { Session } from 'neo4j-driver';
 import type { BuildingNode, Coordinates, EntranceNode } from '../types/nodes';
 
-function parseEntrancePoints(points: { x: number; y: number }[] | null): EntranceNode[] | undefined {
-  if (!points?.length) return undefined;
-  // Neo4j Point objects use .x = longitude, .y = latitude (SRID 4326)
-  return points.map((p) => ({ lon: p.x, lat: p.y }));
+function parseEntranceNodes(raw: string | null): EntranceNode[] | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -93,7 +96,7 @@ export async function getBuildingCoords(
       MATCH (b:Building {building_name: $name})
       RETURN b.latitude AS latitude,
              b.longitude AS longitude,
-             b.entrance_points AS entrance_points
+             b.entrance_nodes AS entrance_nodes
       `,
       { name: buildingName },
     ),
@@ -112,7 +115,7 @@ export async function getBuildingCoords(
   return {
     latitude,
     longitude,
-    entranceNodes: parseEntrancePoints(rec.get('entrance_points')),
+    entranceNodes: parseEntranceNodes(rec.get('entrance_nodes')),
   };
 }
 
@@ -160,12 +163,12 @@ export async function getBuildingEntranceNodes(
     tx.run(
       `
       MATCH (b:Building {building_name: $name})
-      RETURN b.entrance_points AS entrance_points
+      RETURN b.entrance_nodes AS entrance_nodes
       `,
       { name: buildingName },
     ),
   );
 
   if (!records.length) return [];
-  return parseEntrancePoints(records[0].get('entrance_points')) ?? [];
+  return parseEntranceNodes(records[0].get('entrance_nodes')) ?? [];
 }
