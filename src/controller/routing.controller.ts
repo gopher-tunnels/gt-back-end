@@ -202,7 +202,7 @@ export async function getAllBuildings(
               b.closes AS closes,
               b.longitude AS longitude,
               b.latitude AS latitude,
-              b:Disconnected_Building AS is_disconnected
+              NOT b:TunnelBuilding AS is_disconnected
       `,
       {},
       { routing: 'READ', database: 'neo4j' },
