@@ -1,5 +1,6 @@
 import neo4j, { Driver } from "neo4j-driver";
 import dotenv from 'dotenv';
+import { setNeo4jAvailable } from '../services/connectionState';
 
 dotenv.config();
 
@@ -24,11 +25,20 @@ export const driver: Driver = neo4j.driver(
     }
 );
 
-export async function verifyConnection(): Promise<void> {
+/**
+ * Verifies the Neo4j connection and updates the connection state.
+ * @returns true if connection succeeded, false otherwise
+ */
+export async function verifyConnection(): Promise<boolean> {
     try {
         const serverInfo = await driver.getServerInfo();
         console.log('Connected to Neo4j:', serverInfo);
-    } catch (err: any) {
-        console.error("\nCould not connect to Neo4j. Continuing without connection.");
+        setNeo4jAvailable(true);
+        return true;
+    } catch (err: unknown) {
+        const error = err as Error;
+        console.error(`\nCould not connect to Neo4j: ${error.message}`);
+        setNeo4jAvailable(false);
+        return false;
     }
 }
