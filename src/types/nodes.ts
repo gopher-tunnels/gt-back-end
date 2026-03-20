@@ -3,23 +3,17 @@ export interface Coordinates {
   longitude: number;
 }
 
-export interface EntranceNode {
-  lon: number;
-  lat: number;
+/** Node types in the routing graph */
+export enum NodeType {
+  BuildingNode = 'building_node',
+  Path = 'path',
+  Elevator = 'elevator',
+  Sidewalk = 'sidewalk',
 }
 
 export interface BuildingNode extends Coordinates {
   buildingName: string;
   id: number | string;
-  entranceNodes?: EntranceNode[];
-}
-
-export interface RouteStep extends BuildingNode {
-  instruction?: {
-    type: 'enter' | 'forward' | 'elevator' | 'left' | 'right' | 'final';
-    label?: string;
-  };
-  floor: string; // SB, 0B, 1, 2...
-  nodeType: string; // elevator, building_node, or path
-  type: string;
+  /** Outdoor entrance points for Mapbox routing. Closest one to the reference point is used. Falls back to latitude/longitude if absent. */
+  entranceNodes?: Coordinates[];
 }

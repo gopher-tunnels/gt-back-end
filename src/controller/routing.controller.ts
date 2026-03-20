@@ -1,52 +1,59 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { getCandidateStartNodes } from '../utils/routing/closestNodes';
-import { Coordinates, BuildingNode } from '../types/nodes';
-import { astar } from '../services/astar';
+import { Coordinates, BuildingNode, NodeType } from '../types/nodes';
+import { InstructionType, SegmentType } from '../types/route';
+import { getAllNodes, getNode, getDisconnectedBuilding, findRoute, getGraphInfo, GraphLayerType } from '../services/multiLayerGraph';
+import { RoutingPreference } from '../config/routing';
+import { haversineDistance } from '../utils/math';
+import type { ExecutedSegment } from '../types/route';
+import { aggregateRoute, buildMapboxSegment, handleDirectWalk, findUserInsideBuilding } from '../services/routeBuilder';
 import { incrementBuildingVisit } from '../services/visits';
-import { isDisconnectedBuilding, getBuildingCoords, getBuildingEntranceNodes } from '../services/buildings';
-import {
-  aggregateRoute,
-  buildMapboxSegment,
-  resolveConnectedTarget,
-  resolveDisconnectedTarget,
-  handleDirectWalk,
-  findUserInsideBuilding,
-  type MapboxSegmentResult,
-} from '../services/routeBuilder';
-import { closestEntranceCoords } from '../utils/routing/closestEntrance';
+import { ROUTING_CONFIG } from '../config/routing';
+import { isRoutingAvailable, isWriteAvailable, getConnectionState } from '../services/connectionState';
+
+function mapboxCoords(node: BuildingNode, reference: Coordinates): Coordinates {
+  if (!node.entranceNodes?.length) return node;
+  return node.entranceNodes.reduce((best, e) =>
+    haversineDistance(e, reference) < haversineDistance(best, reference) ? e : best,
+  );
+}
 
 /**
  * GET /route
- * Computes and returns the full navigable route from a given start location to a target building.
+ * Computes a navigation route using the precomputed multilayer graph.
  *
- * Normal case:
- *  - Mapbox: user -> GT start node
- *  - GT (A*): start node -> target building
- *
- * Disconnected_Building case:
- *  - Mapbox: user -> GT start node
- *  - GT (A*): start node -> closest building_node to the disconnected building
- *  - Mapbox: GT end node -> disconnected building
+ * Flow:
+ *  1. Direct walk if user < 100m from target
+ *  2. Determine start building_node (inside building or nearest candidate)
+ *  3. Run Dijkstra on multilayer graph (tunnel + outdoor layers)
+ *  4. Execute each segment: tunnel → cached steps, outdoor → Mapbox
+ *  5. If target has no building_node, append final Mapbox leg to target coords
  */
 export async function getRoute(
   req: Request,
   res: Response,
   next: NextFunction,
 ) {
+  // Check if routing is available (graph loaded)
+  if (!isRoutingAvailable()) {
+    res.status(503).json({
+      error: 'Routing service unavailable',
+      message: 'Graph not loaded. Check server startup logs.',
+    });
+    return;
+  }
+
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
+  const rawPreference = req.query.preference as string;
+  const preference: RoutingPreference = Object.values(RoutingPreference).includes(rawPreference as RoutingPreference)
+    ? (rawPreference as RoutingPreference)
+    : ROUTING_CONFIG.DEFAULT_PREFERENCE;
   const userLocation: Coordinates = { latitude, longitude };
 
-  console.log(`\n========== ROUTE REQUEST ==========`);
-  console.log(`  Target: "${targetBuilding}"`);
-  console.log(`  User:   (${latitude}, ${longitude})`);
-  console.log(`===================================\n`);
-
   if (!targetBuilding || isNaN(longitude) || isNaN(latitude)) {
-    console.error('[ERROR] Missing target building or coordinates');
     res.status(400).send('Invalid query parameters');
     return;
   }
@@ -54,152 +61,131 @@ export async function getRoute(
   const session = driver.session({ database: 'neo4j' });
 
   try {
-    // 1. Determine if target is a Disconnected_Building
-    const disconnected = await isDisconnectedBuilding(session, targetBuilding);
-    console.log(`[1] Building type: ${disconnected ? 'DISCONNECTED' : 'CONNECTED'}`);
-
-    // 2. Get target building coordinates (works for both connected and disconnected)
-    const targetCoords = await getBuildingCoords(session, targetBuilding);
-    console.log(`[2] Target coords: ${targetCoords ? `(${targetCoords.latitude}, ${targetCoords.longitude})` : 'NOT FOUND'}`);
-
-    // 3. Resolve routing parameters based on building type
-    let routingTargetBuilding: string;
-    let buildingNodesForRouting: BuildingNode[];
-    let disconnectedCoords: Coordinates | null = null;
-
-    if (disconnected) {
-      const disconnectedResult = await resolveDisconnectedTarget(session, targetBuilding, userLocation, targetCoords);
-      if (!disconnectedResult) {
-        console.error('[3] No disconnected routing result found');
-        res.status(404).send('No path found');
-        return;
-      }
-
-      disconnectedCoords = disconnectedResult.disconnectedCoords;
-      routingTargetBuilding = disconnectedResult.routingTargetBuilding;
-      buildingNodesForRouting = disconnectedResult.buildingNodesForRouting;
-      console.log(`[3] Disconnected exit building: "${routingTargetBuilding}"`);
-      console.log(`    Exit coords: (${disconnectedCoords.latitude}, ${disconnectedCoords.longitude})`);
-    } else {
-      const connectedResult = await resolveConnectedTarget(session, targetBuilding);
-      if (!connectedResult) {
-        console.error('[3] No connected routing result found');
-        res.status(404).send('No path found');
-        return;
-      }
-      routingTargetBuilding = connectedResult.routingTargetBuilding;
-      buildingNodesForRouting = connectedResult.buildingNodesForRouting;
-      console.log(`[3] Resolved ${buildingNodesForRouting.length} candidate building nodes`);
+    const targetNode = getNode(targetBuilding) ?? getDisconnectedBuilding(targetBuilding);
+    if (!targetNode) {
+      res.status(404).send('Building not found');
+      return;
     }
+    const targetCoords: Coordinates = targetNode;
 
-    // 4. Check if user is inside a building (within ~25m of a building_node)
-    const insideBuilding = findUserInsideBuilding(buildingNodesForRouting, userLocation);
-    console.log(`[4] User inside building: ${insideBuilding ? `YES - "${insideBuilding.buildingName}"` : 'NO'}`);
+    // 1. Direct walk
+    const directWalk = await handleDirectWalk(session, userLocation, targetCoords, targetBuilding);
+    if (directWalk) { res.json(directWalk); return; }
 
-    // 5. Check if user is close enough for direct walk
-    // Skip direct walk if user is inside a connected building going to another connected building
-    // (they should use the tunnel instead of going outside)
-    const shouldSkipDirectWalk = insideBuilding && !disconnected;
+    const allNodes = getAllNodes();
 
-    if (targetCoords && !shouldSkipDirectWalk) {
-      const directWalkResult = await handleDirectWalk(
-        session,
-        userLocation,
-        targetCoords,
-        targetBuilding,
-      );
-      if (directWalkResult) {
-        console.log(`[5] EARLY EXIT: Direct walk (< 100m)`);
-        res.json(directWalkResult);
-        return;
-      }
-    }
-    console.log(`[5] Direct walk: skipped (too far or user inside building)`);
+    // 2. Determine start node — inside building check, else nearest building_node
+    const insideBuilding = findUserInsideBuilding(allNodes, userLocation);
+    const skipInitialMapbox = !!insideBuilding;
+    const startNodeName = insideBuilding?.buildingName
+      ?? allNodes.reduce((best, n) =>
+          haversineDistance(n, userLocation) < haversineDistance(best, userLocation) ? n : best,
+        ).buildingName;
 
-    // 6. Determine start node and whether to skip initial Mapbox segment (tunnel entry)
-    let startNode: BuildingNode;
-    let skipInitialMapbox = false;
-
-    if (insideBuilding) {
-      startNode = insideBuilding;
-      skipInitialMapbox = true;
-      console.log(`[6] Start node: "${startNode.buildingName}" (id: ${startNode.id}) — user is inside, skipping Mapbox`);
-    } else {
-      const candidateStartNodes = getCandidateStartNodes(
-        buildingNodesForRouting,
-        userLocation,
-        routingTargetBuilding,
-      );
-
-      if (!candidateStartNodes.length) {
-        console.error('[6] No candidate start nodes found');
-        res.status(404).send('No path found');
-        return;
-      }
-
-      startNode = candidateStartNodes[0];
-      console.log(`[6] Start node: "${startNode.buildingName}" (id: ${startNode.id})`);
-      console.log(`    Start coords: (${startNode.latitude}, ${startNode.longitude})`);
-      console.log(`    Candidates: [${candidateStartNodes.map(n => `"${n.buildingName}"`).join(', ')}]`);
-    }
-
-    // 7. Mapbox segment 1: user -> GT start (skip if user is inside a building)
-    const startNodeEntrances = skipInitialMapbox
-      ? []
-      : await getBuildingEntranceNodes(session, startNode.buildingName);
-    const seg1Dest = closestEntranceCoords(startNodeEntrances, userLocation, startNode);
-    const mapboxSegment1: MapboxSegmentResult = skipInitialMapbox
-      ? { steps: [], distance: 0, duration: 0 }
-      : (await buildMapboxSegment(
-          userLocation,
-          seg1Dest,
-          { type: 'final', label: 'Continue through the GopherWay' },
-        ) ?? { steps: [], distance: 0, duration: 0 });
-    console.log(`[7] Mapbox seg 1: ${skipInitialMapbox ? 'SKIPPED' : `${mapboxSegment1.steps.length} steps, ${Math.round(mapboxSegment1.distance)}m`}`);
-
-    // 8. GT segment: A* from startNode -> routingTargetBuilding
-    console.log(`[8] A* pathfinding: "${startNode.buildingName}" -> "${routingTargetBuilding}"`);
-    const astarResult = await astar(session, startNode.buildingName, routingTargetBuilding);
-    if (!astarResult) {
-      console.error('[8] A* could not find a path');
+    if (!startNodeName) {
       res.status(404).send('No path found');
       return;
     }
 
-    const { steps: gtSteps, weight } = astarResult;
-    console.log(`[8] A* result: ${gtSteps.length} steps, weight: ${Math.round(weight)}m`);
+    // 3. Route target — if building has no building_node, route to nearest node then Mapbox to target
+    const targetInGraph = !!getNode(targetBuilding);
+    const routeTarget = targetInGraph
+      ? targetBuilding
+      : allNodes.reduce((best, n) =>
+          haversineDistance(n, targetCoords) < haversineDistance(best, targetCoords) ? n : best,
+        ).buildingName;
 
-    // 9. Optional Mapbox segment 2: GT end -> disconnected building
-    let mapboxSegment2: MapboxSegmentResult | null = null;
-    if (disconnected && disconnectedCoords && gtSteps.length > 0) {
-      const lastGtStep = gtSteps[gtSteps.length - 1];
-      const gtExit = { latitude: lastGtStep.latitude, longitude: lastGtStep.longitude };
-      const exitBuildingEntrances = await getBuildingEntranceNodes(session, lastGtStep.buildingName ?? '');
-      const seg2Origin = closestEntranceCoords(exitBuildingEntrances, disconnectedCoords, gtExit);
-      const seg2Dest = closestEntranceCoords(targetCoords?.entranceNodes, seg2Origin, disconnectedCoords);
-      console.log(`[9] Mapbox seg 2: GT exit (${seg2Origin.latitude}, ${seg2Origin.longitude}) -> disconnected building`);
-      mapboxSegment2 = await buildMapboxSegment(
-        seg2Origin,
-        seg2Dest,
-        { type: 'final', label: `Walk to ${targetBuilding}` },
-      );
-      console.log(`[9] Mapbox seg 2: ${mapboxSegment2 ? `${mapboxSegment2.steps.length} steps, ${Math.round(mapboxSegment2.distance)}m` : 'FAILED'}`);
-    } else {
-      console.log(`[9] Mapbox seg 2: N/A (connected building)`);
+    // 4. Dijkstra on multilayer graph
+    const routeSegments = findRoute(startNodeName, routeTarget, preference);
+    if (!routeSegments) {
+      res.status(404).send('No path found');
+      return;
     }
 
-    // 10. Aggregate and respond
-    const result = aggregateRoute(mapboxSegment1, gtSteps, weight, mapboxSegment2);
-    await incrementBuildingVisit(session, targetBuilding);
-    console.log(`\n---------- ROUTE COMPLETE ----------`);
-    console.log(`  Total distance: ${Math.round(result.totalDistance)}m`);
-    console.log(`  Total time:     ${Math.round(result.totalTime)}s`);
-    console.log(`  Segments:       ${result.steps.map(s => s.type).join(' -> ')}`);
-    console.log(`------------------------------------\n`);
+    // 5. Execute segments
+    const executed: ExecutedSegment[] = [];
+
+    // Initial Mapbox: user -> first building_node (skip if user is inside)
+    if (!skipInitialMapbox) {
+      const firstNode = routeSegments.length > 0 ? routeSegments[0].from : getNode(routeTarget)!;
+      const seg = await buildMapboxSegment(
+        userLocation,
+        mapboxCoords(firstNode, userLocation),
+        { type: InstructionType.Enter, label: 'Enter the GopherWay' },
+      );
+      if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
+    }
+
+    for (let i = 0; i < routeSegments.length; i++) {
+      const segment = routeSegments[i];
+      if (segment.type === GraphLayerType.Tunnel) {
+        const prevWasTunnel = routeSegments[i - 1]?.type === GraphLayerType.Tunnel;
+        const nextIsAlsoTunnel = routeSegments[i + 1]?.type === GraphLayerType.Tunnel;
+
+        let steps = segment.steps!;
+        if (prevWasTunnel || nextIsAlsoTunnel) {
+          steps = steps.map((s, idx) => {
+            if (idx === 0 && prevWasTunnel)
+              return { ...s, instruction: { type: InstructionType.Forward, label: 'Continue through the GopherWay' } };
+            if (idx === steps.length - 1 && nextIsAlsoTunnel)
+              return { ...s, instruction: { type: InstructionType.Forward, label: 'Continue through the GopherWay' } };
+            return s;
+          });
+        }
+
+        executed.push({
+          type: SegmentType.GT,
+          steps,
+          distance: segment.cost,
+          duration: Math.round(segment.cost / ROUTING_CONFIG.WALKING_SPEED_MPS),
+        });
+      } else {
+        const distMeters = haversineDistance(segment.from, segment.to) * 1000;
+        if (distMeters < ROUTING_CONFIG.MIN_MAPBOX_SEGMENT_METERS) {
+          executed.push({
+            type: SegmentType.Mapbox,
+            steps: [
+              { ...segment.from, buildingName: '', id: `${segment.from.longitude},${segment.from.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
+              { ...segment.to, buildingName: '', id: `${segment.to.longitude},${segment.to.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
+            ],
+            distance: distMeters,
+            duration: Math.round(distMeters / ROUTING_CONFIG.WALKING_SPEED_MPS),
+          });
+        } else {
+          const seg = await buildMapboxSegment(
+            mapboxCoords(segment.from, segment.to),
+            mapboxCoords(segment.to, segment.from),
+            { type: InstructionType.Forward, label: 'Continue walking' },
+          );
+          if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
+        }
+      }
+    }
+
+    // Final Mapbox leg for buildings not in the graph
+    if (!targetInGraph) {
+      const lastNode = routeSegments.length > 0
+        ? routeSegments[routeSegments.length - 1].to
+        : getNode(routeTarget)!;
+      const seg = await buildMapboxSegment(
+        mapboxCoords(lastNode, targetCoords),
+        targetCoords,
+        { type: InstructionType.Final, label: `Walk to ${targetBuilding}` },
+      );
+      if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
+    }
+
+    const result = aggregateRoute(executed);
+
+    // Only track visits if Neo4j is available (skip in offline mode)
+    if (isWriteAvailable()) {
+      await incrementBuildingVisit(session, targetBuilding);
+    }
+
     res.json(result);
-  } catch (err: any) {
-    console.error(`\n[ERROR] Route failed: ${err.message}`);
-    console.error(err.stack);
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error(`[ERROR] Route failed: ${error.message}`);
     res.status(500).send('Failed finding Route');
   } finally {
     await session.close();
@@ -208,9 +194,6 @@ export async function getRoute(
 
 /**
  * GET /buildings
- * Retrieves all building nodes from the database.
- *
- * @returns An array of all building nodes with building_name, visits, x, and y.
  */
 export async function getAllBuildings(
   req: Request,
@@ -234,7 +217,7 @@ export async function getAllBuildings(
       { routing: 'READ', database: 'neo4j' },
     );
 
-    const buildings: BuildingNode[] = records.map((record) => ({
+    res.json(records.map((record) => ({
       buildingName: record.get('building_name'),
       address: record.get('address'),
       opens: record.get('opens'),
@@ -243,10 +226,8 @@ export async function getAllBuildings(
       latitude: record.get('latitude'),
       id: record.get('id').toNumber(),
       isDisconnected: record.get('is_disconnected') === true,
-    }));
-
-    res.json(buildings);
-  } catch (err: any) {
+    })));
+  } catch (err: unknown) {
     console.error('Error fetching buildings from database', err);
     res.status(500).send('Error fetching buildings from database');
   }
@@ -254,13 +235,6 @@ export async function getAllBuildings(
 
 /**
  * GET /popular
- * Retrieves the five most popular buildings based on visit counts.
- *
- * TODO:
- *  - Add protection against visits update spam in getRoute.
- *  - What if we just returned the popular buildings for the user? Suggestion
- *
- * @returns An array of up to five building names, ordered by popularity.
  */
 export async function getPopularBuildings(
   req: Request,
@@ -284,15 +258,13 @@ export async function getPopularBuildings(
       { routing: 'READ', database: 'neo4j' },
     );
 
-    const popularBuildings = records.map((r) => ({
+    res.json(records.map((r) => ({
       id: r.get('id').toNumber(),
       buildingName: r.get('buildingName'),
       visits: r.get('visits'),
       latitude: r.get('latitude'),
       longitude: r.get('longitude'),
-    }));
-
-    res.json(popularBuildings);
+    })));
   } catch (err) {
     console.error('popularRoutes failed: ', err);
     res.status(500).send('Failed to find popular routes.');
@@ -301,71 +273,13 @@ export async function getPopularBuildings(
 
 /**
  * GET /search
- * Retrieves a list of the closest matching buildings
- *
- * @param req - The request containing the search input from the user.
- * @param res - The response the server will send back
- * @returns res.json() -> An ordered list of buildings based on % Match to the search input
  */
 export async function searchBuildings(req: Request, res: Response) {
   try {
-    // Retrieve the input string from the request
     const input = req.query.input?.toString().trim();
+    if (!input) return res.json([]);
 
-    // If the input doesn't exist, then return empty array
-    if (!input) {
-      return res.json([]);
-    }
-
-    // Send a query to the database for the search results with given input
-    const searchResults = await getSearchResults(input);
-
-    // Extract just the node info
-    const matches = searchResults.map((result) =>
-      typeof result === 'string' ? result : result.node,
-    );
-
-    // Send all matches with 200 status code
-    res.status(200).json(matches);
-  } catch (err: any) {
-    // Catching any error, if we want to specialize we could make cases for particular error codes
-    // Logging, I would keep this here for debugging purposes
-    console.log('Search Error: ', err);
-
-    // Currently I'm assuming that this error will be concerning the database so I'm throwing a 503
-    res.status(503).json({
-      error: 'Error while querying the database',
-      details: err.message,
-    });
-  }
-}
-
-/**
- * Retrieves the closest matching building name based on the search input.
- *
- * @param searchInputText - The partial search input from the user.
- * @returns An ordered list of buildings based on % Match to the search input
- */
-async function getSearchResults(searchInputText: string | undefined): Promise<
-  {
-    node: any;
-    score: number;
-  }[]
-> {
-  // Check if the search input text is valid, if not, return an empty list
-  if (!searchInputText) return [];
-
-  // Aggregating query results into a list of a dict containing name and score
-  const results: Awaited<ReturnType<typeof getSearchResults>> = [];
-
-  // Logging for debug purposes
-  // console.log('Search input text:', searchInputText);
-
-  try {
-    // Clean the input text to prevent injection
-    const cleanInput = searchInputText?.replace(/"/g, '\\"');
-
-    // Querying neo4j using fuzzy search, obtaining only top 5 results (automatically desc, but I'll make sure)
+    const cleanInput = input.replace(/"/g, '\\"');
     const queryResult = await driver.executeQuery(
       `
       CALL db.index.fulltext.queryNodes('BuildingsIndex', $search_input)
@@ -377,32 +291,38 @@ async function getSearchResults(searchInputText: string | undefined): Promise<
       { search_input: `\\"${cleanInput}~\\"` },
     );
 
-    // Logging for the result records, uncomment for debugging lol
-    // console.log(queryResult.records)
-
-    // Populate the results list with node info and scores
-    queryResult.records.forEach((record) => {
-      const node = record.get('node') as Node;
-      const score = record.get('score');
-
-      results.push({
-        node: {
+    res.status(200).json(
+      queryResult.records.map((record) => {
+        const node = record.get('node') as Node;
+        return {
           buildingName: node.properties.building_name,
           address: node.properties.address,
           latitude: node.properties.latitude,
           longitude: node.properties.longitude,
           id: node.identity.toNumber(),
-        },
-        score: score,
-      });
-    });
-
-    // Logging for the building nodes + scores
-    // console.log(results);
-  } catch (err) {
-    // Erroring out, assuming it is a database problem
-    console.log('Error querying database: ', err);
-    throw err;
+        };
+      }),
+    );
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error('Search Error:', error);
+    res.status(503).json({ error: 'Error while querying the database', details: error.message });
   }
-  return results;
+}
+
+/**
+ * GET /graph
+ * Returns graph statistics and connection state.
+ */
+export function getGraphStatus(_req: Request, res: Response) {
+  const graphInfo = getGraphInfo();
+  const connState = getConnectionState();
+
+  res.json({
+    ...graphInfo,
+    neo4jAvailable: connState.neo4jAvailable,
+    graphLoaded: connState.graphLoaded,
+    offlineMode: connState.offlineMode,
+    cacheAge: connState.cacheAge?.toISOString() ?? null,
+  });
 }

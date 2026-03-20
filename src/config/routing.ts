@@ -1,22 +1,23 @@
-// User-selectable presets (for future API parameter)
-export type RoutingPreference = 'indoor' | 'balanced' | 'fastest';
+/** User preference for route optimization */
+export enum RoutingPreference {
+  /** Strongly prefer tunnel routes (3× outdoor penalty) */
+  Indoor = 'indoor',
+  /** Moderate tunnel preference */
+  Balanced = 'balanced',
+  /** Pure distance optimization (no penalty) */
+  Fastest = 'fastest',
+}
 
 export const OUTDOOR_PENALTY_BY_PREFERENCE: Record<RoutingPreference, number> = {
-  indoor: 3.0, // Strong tunnel preference
-  balanced: 1.5, // Default - moderate tunnel preference
-  fastest: 1.0, // Pure distance optimization
+  [RoutingPreference.Indoor]: 3.0,
+  [RoutingPreference.Balanced]: 2.0,
+  [RoutingPreference.Fastest]: 1.0,
 };
 
 export const ROUTING_CONFIG = {
-  DEFAULT_PREFERENCE: 'indoor' as RoutingPreference,
-  MIN_DIRECT_WALK_METERS: 100, // Skip tunnel if direct walk < 100m
-  INSIDE_BUILDING_METERS: 25, // User is considered inside a building if within this distance
-  MAX_EXIT_RADIUS_KM: 0.5, // Only consider exits within 500m of target
-  TUNNEL_ESTIMATE_FACTOR: 1.4, // Tunnel paths are ~1.4x straight-line distance
-
-  // Start node selection constants
-  FORWARD_DIRECTION_LEEWAY_FACTOR: 1.06, // Allow nodes slightly past destination
-  MAX_START_NODES: 1, // Number of candidate start nodes to return
-  DIRECTION_ANGLE_WEIGHT: 1, // Weight for angle-based scoring
-  TARGET_BUILDING_PENALTY_MULTIPLIER: 1.15, // Prefer intermediate access points over destination
+  DEFAULT_PREFERENCE: RoutingPreference.Balanced,
+  MIN_DIRECT_WALK_METERS: 100,   // Skip tunnel if direct walk < 100m
+  INSIDE_BUILDING_METERS: 25,    // User considered inside a building within this distance
+  WALKING_SPEED_MPS: 1.4,        // m/s used to estimate tunnel traversal time
+  MIN_MAPBOX_SEGMENT_METERS: 60, // Skip Mapbox API for outdoor segments shorter than this
 };

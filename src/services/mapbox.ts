@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Coordinates } from '../types/nodes';
+import { TilequeryFeature, TilequeryResponse, MapboxDirectionsResponse } from '../types/mapbox';
 import { calculateBearing, angularDifference } from '../utils/math';
 
 const mapboxClient = axios.create({
@@ -11,28 +12,6 @@ const SNAP_CONFIG = {
   SEARCH_RADIUS_METERS: 75, // Radius to search for nearby roads
   MAX_SNAP_DISTANCE_METERS: 100, // Don't snap if closest road is further than this
 };
-
-interface TilequeryFeature {
-  type: 'Feature';
-  geometry: {
-    type: 'Point';
-    coordinates: [number, number]; // [lon, lat]
-  };
-  properties: {
-    class?: string;
-    type?: string;
-    tilequery: {
-      distance: number;
-      geometry: string;
-      layer: string;
-    };
-  };
-}
-
-interface TilequeryResponse {
-  type: 'FeatureCollection';
-  features: TilequeryFeature[];
-}
 
 /**
  * Query Mapbox Tilequery API to find nearby road features.
@@ -84,7 +63,7 @@ export async function snapToNearestSidewalk(
   const roads = await queryNearbyRoads(coords, SNAP_CONFIG.SEARCH_RADIUS_METERS);
 
   if (roads.length === 0) {
-    console.log(`[Snap] No nearby roads found, using original coordinates`);
+    if (process.env.DEBUG_MAPBOX === 'true') console.log(`[Snap] No nearby roads found, using original coordinates`);
     return coords;
   }
 
@@ -128,7 +107,7 @@ export async function snapToNearestSidewalk(
     });
 
   if (scoredFeatures.length === 0) {
-    console.log(`[Snap] No suitable roads within ${SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS}m, using original coordinates`);
+    if (process.env.DEBUG_MAPBOX === 'true') console.log(`[Snap] No suitable roads within ${SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS}m, using original coordinates`);
     return coords;
   }
 
@@ -141,8 +120,10 @@ export async function snapToNearestSidewalk(
     latitude: best.geometry.coordinates[1],
   };
 
-  console.log(`[Snap] ${isOrigin ? 'Origin' : 'Destination'} snapped: (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}) -> (${snappedCoords.latitude.toFixed(6)}, ${snappedCoords.longitude.toFixed(6)})`);
-  console.log(`[Snap]   Distance: ${best.properties.tilequery.distance.toFixed(1)}m, Bearing: ${best.bearing.toFixed(0)}° (desired: ${normalizedDesiredBearing.toFixed(0)}°), Class: ${best.properties.class || 'unknown'}`);
+  if (process.env.DEBUG_MAPBOX === 'true') {
+    console.log(`[Snap] ${isOrigin ? 'Origin' : 'Destination'} snapped: (${coords.latitude.toFixed(6)}, ${coords.longitude.toFixed(6)}) -> (${snappedCoords.latitude.toFixed(6)}, ${snappedCoords.longitude.toFixed(6)})`);
+    console.log(`[Snap]   Distance: ${best.properties.tilequery.distance.toFixed(1)}m, Bearing: ${best.bearing.toFixed(0)}° (desired: ${normalizedDesiredBearing.toFixed(0)}°), Class: ${best.properties.class || 'unknown'}`);
+  }
 
   return snappedCoords;
 }
@@ -156,7 +137,7 @@ export async function getMapboxWalkingDirections(
   origin: Coordinates,
   destination: Coordinates,
   options: MapboxDirectionsOptions = {},
-) {
+): Promise<MapboxDirectionsResponse> {
   const accessToken = process.env.MAPBOX_API_KEY;
 
   if (!accessToken) {
@@ -169,15 +150,11 @@ export async function getMapboxWalkingDirections(
   let snappedDestination = destination;
 
   if (options.snapToSidewalk) {
-    console.log(`[Mapbox] Snapping coordinates to sidewalk...`);
     [snappedOrigin, snappedDestination] = await Promise.all([
       snapToNearestSidewalk(origin, destination, true),
       snapToNearestSidewalk(destination, origin, false),
     ]);
   }
-
-  console.log(`[Mapbox] Request: (${snappedOrigin.latitude}, ${snappedOrigin.longitude}) -> (${snappedDestination.latitude}, ${snappedDestination.longitude})`);
-  console.log(`[Mapbox] URL: walking/${snappedOrigin.longitude},${snappedOrigin.latitude};${snappedDestination.longitude},${snappedDestination.latitude}`);
 
   const radius = options.radiusMeters ?? 50;
   const response = await mapboxClient.get(
@@ -193,10 +170,12 @@ export async function getMapboxWalkingDirections(
       },
     },
   );
-  const data = response.data;
-  if (data.waypoints) {
-    console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w: any) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
+  const data = response.data as MapboxDirectionsResponse;
+  if (process.env.DEBUG_MAPBOX === 'true') {
+    if (data.waypoints) {
+      console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
+    }
+    console.log(`[Mapbox] Route distance: ${data.routes?.[0]?.distance}m, duration: ${data.routes?.[0]?.duration}s`);
   }
-  console.log(`[Mapbox] Route distance: ${data.routes?.[0]?.distance}m, duration: ${data.routes?.[0]?.duration}s`);
   return data;
 }
