@@ -4,10 +4,23 @@ import type { Session, Node, Path } from 'neo4j-driver';
 import { driver } from '../controller/db';
 import { getInstruction } from '../utils/routing/getInstruction';
 import type { RouteStep } from '../types/route';
-import { registerNode, setTunnelEdge, serializeGraph, loadGraph, CACHE_VERSION } from './multiLayerGraph';
+import { registerNode, registerDisconnectedBuilding, setTunnelEdge, serializeGraph, loadGraph, CACHE_VERSION } from './multiLayerGraph';
 
 const CONCURRENCY = 20; // 20 threads possible for querying Neo4j
 const CACHE_PATH = resolve(__dirname, '../../graph.cache.json');
+
+function parseEntranceNodes(raw: string | null, buildingName: string): { latitude: number; longitude: number }[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { lon: number; lat: number }[];
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((e) => ({ latitude: e.lat, longitude: e.lon }));
+    }
+  } catch {
+    console.warn(`[Graph] Failed to parse entrance_nodes for ${buildingName}`);
+  }
+  return undefined;
+}
 
 async function runAstar(session: Session, startName: string, endName: string): Promise<{ steps: RouteStep[]; weight: number } | null> {
   const { records } = await session.executeRead((tx) =>
@@ -104,21 +117,11 @@ export async function buildGraph(session: Session): Promise<Date | null> {
   );
 
   const buildingNodes = records.map((r) => {
-    const entranceNodesRaw = r.get('entranceNodes') as string | null;
-    let entranceNodes: { latitude: number; longitude: number }[] | undefined;
-    if (entranceNodesRaw) {
-      try {
-        const parsed = JSON.parse(entranceNodesRaw) as { lon: number; lat: number }[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          entranceNodes = parsed.map((e) => ({ latitude: e.lat, longitude: e.lon }));
-        }
-      } catch {
-        console.warn(`[Graph] Failed to parse entrance_nodes for ${r.get('name')}`);
-      }
-    }
+    const name = r.get('name') as string;
+    const entranceNodes = parseEntranceNodes(r.get('entranceNodes') as string | null, name);
     return {
       id: r.get('id').toNumber(),
-      buildingName: r.get('name') as string,
+      buildingName: name,
       latitude: r.get('latitude') as number,
       longitude: r.get('longitude') as number,
       ...(entranceNodes ? { entranceNodes } : {}),
@@ -145,6 +148,29 @@ export async function buildGraph(session: Session): Promise<Date | null> {
 
   for (const node of buildingNodes) registerNode(node);
   console.log(`[Graph] Registered ${buildingNodes.length} building nodes`);
+
+  // Fetch disconnected buildings (have no building_node) for offline coord lookup
+  const { records: disconnectedRecords } = await session.executeRead((tx) =>
+    tx.run(`
+      MATCH (b:Building)
+      WHERE NOT b:TunnelBuilding
+      RETURN b.building_name AS name, b.latitude AS latitude, b.longitude AS longitude,
+             b.entrance_nodes AS entranceNodes
+    `),
+  );
+
+  for (const r of disconnectedRecords) {
+    const name = r.get('name') as string;
+    const entranceNodes = parseEntranceNodes(r.get('entranceNodes') as string | null, name);
+    registerDisconnectedBuilding({
+      id: name,
+      buildingName: name,
+      latitude: r.get('latitude') as number,
+      longitude: r.get('longitude') as number,
+      ...(entranceNodes ? { entranceNodes } : {}),
+    });
+  }
+  console.log(`[Graph] Registered ${disconnectedRecords.length} disconnected buildings`);
 
   const pairs: [string, string][] = [];
   for (const a of buildingNodes)

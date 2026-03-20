@@ -3,7 +3,7 @@ import { driver } from './db';
 import { Node } from 'neo4j-driver';
 import { Coordinates, BuildingNode, NodeType } from '../types/nodes';
 import { InstructionType, SegmentType } from '../types/route';
-import { getAllNodes, getNode, findRoute, getGraphInfo, GraphLayerType } from '../services/multiLayerGraph';
+import { getAllNodes, getNode, getDisconnectedBuilding, findRoute, getGraphInfo, GraphLayerType } from '../services/multiLayerGraph';
 import { RoutingPreference } from '../config/routing';
 import { haversineDistance } from '../utils/math';
 import type { ExecutedSegment } from '../types/route';
@@ -61,14 +61,12 @@ export async function getRoute(
   const session = driver.session({ database: 'neo4j' });
 
   try {
-    const { records: coordRecords } = await session.executeRead((tx) =>
-      tx.run(`MATCH (b:Building {building_name: $name}) RETURN b.latitude AS latitude, b.longitude AS longitude`, { name: targetBuilding }),
-    );
-    if (!coordRecords.length || coordRecords[0].get('latitude') == null) {
+    const targetNode = getNode(targetBuilding) ?? getDisconnectedBuilding(targetBuilding);
+    if (!targetNode) {
       res.status(404).send('Building not found');
       return;
     }
-    const targetCoords: Coordinates = { latitude: coordRecords[0].get('latitude'), longitude: coordRecords[0].get('longitude') };
+    const targetCoords: Coordinates = targetNode;
 
     // 1. Direct walk
     const directWalk = await handleDirectWalk(session, userLocation, targetCoords, targetBuilding);

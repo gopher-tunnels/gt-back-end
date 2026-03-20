@@ -18,7 +18,7 @@ import { OUTDOOR_PENALTY_BY_PREFERENCE, type RoutingPreference, ROUTING_CONFIG }
 export { GraphLayerType } from '../types/route';
 
 // INREMENT WHEN GRAPH VERSION CHANGES TO FORCE REBUILD
-export const CACHE_VERSION = 3;
+export const CACHE_VERSION = 4;
 
 // Serialized Graph Cache
 export interface GraphCache {
@@ -26,6 +26,7 @@ export interface GraphCache {
   builtAt: string;
   nodes: BuildingNode[];
   tunnelEdges: { from: string; to: string; cost: number; steps: RouteStep[] }[];
+  disconnectedBuildings: BuildingNode[];
 }
 
 /**
@@ -40,24 +41,27 @@ export function serializeGraph(): GraphCache {
     tunnelEdges: Array.from(tunnelEdges.entries()).flatMap(([from, toMap]) =>
       Array.from(toMap.entries()).map(([to, edge]) => ({ from, to, cost: edge.cost, steps: edge.steps })),
     ),
+    disconnectedBuildings: Array.from(disconnectedBuildings.values()),
   };
 }
 
 export function loadGraph(cache: GraphCache): void {
   for (const node of cache.nodes) registerNode(node);
   for (const { from, to, cost, steps } of cache.tunnelEdges) setTunnelEdge(from, to, { cost, steps });
+  for (const node of cache.disconnectedBuildings ?? []) registerDisconnectedBuilding(node);
 }
 
 // Clears IN-MEMORY graph
 export function clearGraph(): void {
   nodes.clear();
   tunnelEdges.clear();
+  disconnectedBuildings.clear();
 }
 
-export function getGraphInfo(): { nodeCount: number; tunnelEdgeCount: number } {
+export function getGraphInfo(): { nodeCount: number; tunnelEdgeCount: number; disconnectedBuildingCount: number } {
   let edgeCount = 0;
   for (const toMap of tunnelEdges.values()) edgeCount += toMap.size;
-  return { nodeCount: nodes.size, tunnelEdgeCount: edgeCount };
+  return { nodeCount: nodes.size, tunnelEdgeCount: edgeCount, disconnectedBuildingCount: disconnectedBuildings.size };
 }
 
 export interface TunnelEdge {
@@ -65,14 +69,25 @@ export interface TunnelEdge {
   steps: RouteStep[];
 }
 
-// building_name -> BuildingNode
+// building_name -> BuildingNode (tunnel-connected only)
 const nodes = new Map<string, BuildingNode>();
+
+// building_name -> BuildingNode (not connected to tunnel network)
+const disconnectedBuildings = new Map<string, BuildingNode>();
 
 // Directional tunnel edges: from (building) -> to (building) -> TunnelEdge
 const tunnelEdges = new Map<string, Map<string, TunnelEdge>>();
 
 export function registerNode(node: BuildingNode): void {
   nodes.set(node.buildingName, node);
+}
+
+export function registerDisconnectedBuilding(node: BuildingNode): void {
+  disconnectedBuildings.set(node.buildingName, node);
+}
+
+export function getDisconnectedBuilding(name: string): BuildingNode | undefined {
+  return disconnectedBuildings.get(name);
 }
 
 export function setTunnelEdge(from: string, to: string, edge: TunnelEdge): void {
