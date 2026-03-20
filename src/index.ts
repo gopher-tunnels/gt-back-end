@@ -8,7 +8,7 @@ import routingRoutes from './routes/routing.route';
 
 import swaggerUi from 'swagger-ui-express';
 import swaggerOutput from './swagger_output.json';
-import { buildRateLimiter, requestSecurityMiddleware } from './middleware/security';
+import { buildRateLimiter } from './middleware/security';
 import { applyTrustProxy, parseTrustProxy } from './utils/httpConfig';
 
 dotenv.config();
@@ -36,20 +36,7 @@ const requestRateLimiter = buildRateLimiter({
   validateXForwardedFor: trustProxy !== false,
 });
 
-app.use(
-  '/api/routing',
-  requestRateLimiter,
-  (req: Request & { rawBody?: string }, res, next) => {
-    // Allow all GET requests without HMAC headers
-    if (req.method === 'GET') {
-      return next();
-    }
-
-    // Enforce HMAC security for non-GET methods (POST, PUT, PATCH, DELETE)
-    return requestSecurityMiddleware(req, res, next);
-  },
-  routingRoutes,
-);
+app.use('/api/routing', requestRateLimiter, routingRoutes);
 
 // close exit app when app is interrupted
 process.on('SIGINT', async () => {
