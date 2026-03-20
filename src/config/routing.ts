@@ -2,7 +2,7 @@
 export enum RoutingPreference {
   /** Strongly prefer tunnel routes (3× outdoor penalty) */
   Indoor = 'indoor',
-  /** Moderate tunnel preference (1.5× outdoor penalty) */
+  /** Moderate tunnel preference */
   Balanced = 'balanced',
   /** Pure distance optimization (no penalty) */
   Fastest = 'fastest',
