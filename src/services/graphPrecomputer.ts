@@ -3,10 +3,10 @@ import { resolve } from 'path';
 import type { Session, Node, Path } from 'neo4j-driver';
 import { driver } from '../controller/db';
 import { getInstruction } from '../utils/routing/getInstruction';
-import type { RouteStep } from '../types/nodes';
+import type { RouteStep } from '../types/route';
 import { registerNode, setTunnelEdge, serializeGraph, loadGraph, CACHE_VERSION } from './multiLayerGraph';
 
-const CONCURRENCY = 20;
+const CONCURRENCY = 20; // 20 threads possible for querying Neo4j
 const CACHE_PATH = resolve(__dirname, '../../graph.cache.json');
 
 async function runAstar(session: Session, startName: string, endName: string): Promise<{ steps: RouteStep[]; weight: number } | null> {
@@ -45,31 +45,49 @@ async function runAstar(session: Session, startName: string, endName: string): P
   };
 }
 
-async function tryLoadCache(): Promise<boolean> {
+/**
+ * Attempts to load the graph from cache.
+ * @returns The cache build date if loaded successfully, null otherwise
+ */
+export async function loadFromCacheIfExists(): Promise<Date | null> {
   try {
     const raw = await readFile(CACHE_PATH, 'utf-8');
     const cache = JSON.parse(raw);
+
     if (cache.version !== CACHE_VERSION) {
-      console.warn(`[Graph] Cache version mismatch (expected ${CACHE_VERSION}, got ${cache.version}) — rebuilding`);
-      return false;
+      console.warn(`[Graph] Cache version mismatch (expected ${CACHE_VERSION}, got ${cache.version}) - rebuilding`);
+      return null;
     }
+
+    if (!Array.isArray(cache.nodes) || !Array.isArray(cache.tunnelEdges)) {
+      console.warn('[Graph] Cache structure invalid (missing nodes or tunnelEdges array) - rebuilding');
+      return null;
+    }
+
     loadGraph(cache);
-    console.log(`[Graph] Loaded from cache — ${cache.nodes.length} nodes, ${cache.tunnelEdges.length} tunnel edges (built ${cache.builtAt})`);
-    return true;
-  } catch {
-    return false;
+    const cacheAge = cache.builtAt ? new Date(cache.builtAt) : new Date();
+    const ageStr = cache.builtAt ? ` (built ${cacheAge.toLocaleString()})` : '';
+    console.log(`[Graph] Loaded from cache - ${cache.nodes.length} nodes, ${cache.tunnelEdges.length} tunnel edges${ageStr}`);
+    return cacheAge;
+  } catch (err: unknown) {
+    const error = err as NodeJS.ErrnoException;
+
+    if (error.code === 'ENOENT') {
+      console.log('[Graph] No cache file found - will build from Neo4j');
+    } else if (err instanceof SyntaxError) {
+      console.error(`[Graph] Cache file corrupted (invalid JSON): ${err.message}`);
+    } else {
+      console.error(`[Graph] Failed to load cache: ${error.message || error}`);
+    }
+
+    return null;
   }
 }
 
-export async function loadFromCacheIfExists(): Promise<void> {
-  const loaded = await tryLoadCache();
-  if (!loaded) console.warn('[Graph] No valid cache found — routes will fail. Run without SKIP_GRAPH_BUILD to build.');
-}
-
-export async function buildGraph(session: Session): Promise<void> {
+export async function buildGraph(session: Session): Promise<Date | null> {
   if (process.env.REBUILD_GRAPH !== 'true') {
-    const loaded = await tryLoadCache();
-    if (loaded) return;
+    const cacheAge = await loadFromCacheIfExists();
+    if (cacheAge) return cacheAge;
   } else {
     console.log('[Graph] REBUILD_GRAPH=true — ignoring cache, rebuilding from Neo4j');
   }
@@ -133,11 +151,17 @@ export async function buildGraph(session: Session): Promise<void> {
     for (const b of buildingNodes)
       if (a.buildingName !== b.buildingName) pairs.push([a.buildingName, b.buildingName]);
 
-  console.log(`[Graph] Precomputing ${pairs.length} tunnel routes (concurrency: ${CONCURRENCY})...`);
+  const totalPairs = pairs.length;
+  console.log(`[Graph] Precomputing ${totalPairs} tunnel routes (concurrency: ${CONCURRENCY})...`);
 
-  let computed = 0;
+  let pairsProcessed = 0;
+  let validEdges = 0;
+  const startTime = Date.now();
+  const progressInterval = Math.max(100, Math.floor(totalPairs / 10)); // Log every 10% or 100 pairs
+
   for (let i = 0; i < pairs.length; i += CONCURRENCY) {
-    const results = await Promise.all(pairs.slice(i, i + CONCURRENCY).map(async ([a, b]) => {
+    const batch = pairs.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(batch.map(async ([a, b]) => {
       const s = driver.session({ database: 'neo4j' });
       try {
         const result = await runAstar(s, a, b);
@@ -147,11 +171,30 @@ export async function buildGraph(session: Session): Promise<void> {
         await s.close();
       }
     }));
-    computed += results.reduce((sum, n) => sum + n, 0 as number);
+
+    pairsProcessed += batch.length;
+    validEdges += results.reduce((sum: number, n: number) => sum + n, 0);
+
+    // Log progress every ~10%
+    if (pairsProcessed % progressInterval < CONCURRENCY || pairsProcessed === totalPairs) {
+      const elapsed = (Date.now() - startTime) / 1000;
+      const percent = ((pairsProcessed / totalPairs) * 100).toFixed(1);
+      const rate = pairsProcessed / elapsed;
+      const remaining = totalPairs - pairsProcessed;
+      const eta = remaining > 0 ? Math.round(remaining / rate) : 0;
+
+      console.log(
+        `[Graph] Progress: ${pairsProcessed}/${totalPairs} pairs (${percent}%) - ` +
+        `${validEdges} edges found - ${elapsed.toFixed(1)}s elapsed` +
+        (eta > 0 ? `, ~${eta}s remaining` : '')
+      );
+    }
   }
 
-  console.log(`[Graph] Done — ${computed} tunnel edges precomputed`);
+  const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[Graph] Complete - ${validEdges} tunnel edges computed in ${totalTime}s`);
   const cache = serializeGraph();
   await writeFile(CACHE_PATH, JSON.stringify(cache), 'utf-8');
   console.log(`[Graph] Cache saved to ${CACHE_PATH}`);
+  return null;
 }

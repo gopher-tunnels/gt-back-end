@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { Coordinates } from '../types/nodes';
+import { TilequeryFeature, TilequeryResponse, MapboxDirectionsResponse } from '../types/mapbox';
 import { calculateBearing, angularDifference } from '../utils/math';
 
 const mapboxClient = axios.create({
@@ -11,28 +12,6 @@ const SNAP_CONFIG = {
   SEARCH_RADIUS_METERS: 75, // Radius to search for nearby roads
   MAX_SNAP_DISTANCE_METERS: 100, // Don't snap if closest road is further than this
 };
-
-interface TilequeryFeature {
-  type: 'Feature';
-  geometry: {
-    type: 'Point';
-    coordinates: [number, number]; // [lon, lat]
-  };
-  properties: {
-    class?: string;
-    type?: string;
-    tilequery: {
-      distance: number;
-      geometry: string;
-      layer: string;
-    };
-  };
-}
-
-interface TilequeryResponse {
-  type: 'FeatureCollection';
-  features: TilequeryFeature[];
-}
 
 /**
  * Query Mapbox Tilequery API to find nearby road features.
@@ -158,7 +137,7 @@ export async function getMapboxWalkingDirections(
   origin: Coordinates,
   destination: Coordinates,
   options: MapboxDirectionsOptions = {},
-) {
+): Promise<MapboxDirectionsResponse> {
   const accessToken = process.env.MAPBOX_API_KEY;
 
   if (!accessToken) {
@@ -191,10 +170,10 @@ export async function getMapboxWalkingDirections(
       },
     },
   );
-  const data = response.data;
+  const data = response.data as MapboxDirectionsResponse;
   if (process.env.DEBUG_MAPBOX === 'true') {
     if (data.waypoints) {
-      console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w: { location: [number, number] }) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
+      console.log(`[Mapbox] Snapped waypoints:`, data.waypoints.map((w) => `(${w.location[1]}, ${w.location[0]})`).join(' -> '));
     }
     console.log(`[Mapbox] Route distance: ${data.routes?.[0]?.distance}m, duration: ${data.routes?.[0]?.duration}s`);
   }

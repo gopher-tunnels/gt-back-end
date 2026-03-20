@@ -1,25 +1,15 @@
 import type { Session } from 'neo4j-driver';
-import { Coordinates, BuildingNode, RouteStep } from '../types/nodes';
+import { Coordinates, BuildingNode, NodeType } from '../types/nodes';
+import { RouteStep, InstructionType, SegmentType, ExecutedSegment, RouteResult } from '../types/route';
+import type { MapboxStep } from '../types/mapbox';
 import { haversineDistance } from '../utils/math';
 import { processMapboxInstruction } from '../utils/routing/processMapboxInstruction';
 import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
 import { ROUTING_CONFIG } from '../config/routing';
 import { incrementBuildingVisit } from './visits';
-
-export interface RouteResult {
-  steps: { type: string; steps: RouteStep[] }[];
-  totalDistance: number;
-  totalTime: number;
-}
+import { isWriteAvailable } from './connectionState';
 
 export interface MapboxSegmentResult {
-  steps: RouteStep[];
-  distance: number;
-  duration: number;
-}
-
-export interface ExecutedSegment {
-  type: string;
   steps: RouteStep[];
   distance: number;
   duration: number;
@@ -39,7 +29,7 @@ export function aggregateRoute(segments: ExecutedSegment[]): RouteResult {
 export async function buildMapboxSegment(
   origin: Coordinates,
   destination: Coordinates,
-  finalInstruction: { type: 'enter' | 'forward' | 'elevator' | 'left' | 'right' | 'final'; label: string },
+  finalInstruction: { type: InstructionType; label: string },
   options: MapboxDirectionsOptions = { snapToSidewalk: true },
 ): Promise<MapboxSegmentResult | null> {
   try {
@@ -64,7 +54,6 @@ export async function buildMapboxSegment(
     const firstCoord = leg.steps[0]?.geometry?.coordinates?.[0];
     if (firstCoord) rawSteps.push({ coords: firstCoord, instruction: undefined });
 
-    interface MapboxStep { geometry?: { coordinates: [number, number][] }; maneuver?: { instruction: string } }
     leg.steps.slice(0, -1).forEach((step: MapboxStep, stepIndex: number) => {
       const coords: [number, number][] = step?.geometry?.coordinates || [];
       const startIdx = stepIndex === 0 ? 1 : 0;
@@ -88,8 +77,8 @@ export async function buildMapboxSegment(
           ? processMapboxInstruction(rawSteps[index + 1]?.instruction || '')
           : finalInstruction,
       floor: '0',
-      nodeType: 'sidewalk',
-      type: 'mapbox',
+      nodeType: NodeType.Sidewalk,
+      type: SegmentType.Mapbox,
     }));
 
     return {
@@ -118,13 +107,15 @@ export async function handleDirectWalk(
   const segment = await buildMapboxSegment(
     userLocation,
     targetCoords,
-    { type: 'final', label: `Arrive at ${targetBuilding}` },
+    { type: InstructionType.Final, label: `Arrive at ${targetBuilding}` },
   );
   if (!segment) return null;
 
-  await incrementBuildingVisit(session, targetBuilding);
+  if (isWriteAvailable()) {
+    await incrementBuildingVisit(session, targetBuilding);
+  }
   return {
-    steps: [{ type: 'mapbox', steps: segment.steps }],
+    steps: [{ type: SegmentType.Mapbox, steps: segment.steps }],
     totalDistance: segment.distance,
     totalTime: segment.duration,
   };

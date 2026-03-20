@@ -1,17 +1,17 @@
 import bearing from '@turf/bearing';
 import type { Node } from 'neo4j-driver';
-import { RouteStep } from '../../types/nodes';
+import { RouteStep, InstructionType } from '../../types/route';
 
 export const getInstruction = (
   current: Node,
   index: number,
   nodes: Node[],
 ): RouteStep['instruction'] => {
-  if (!index) return { type: 'enter', label: 'Enter the GopherWay' };
+  if (!index) return { type: InstructionType.Enter, label: 'Enter the GopherWay' };
   if (index === nodes.length - 1)
-    return { type: 'final', label: "You've arrived!" };
+    return { type: InstructionType.Final, label: "You've arrived!" };
   if (current.properties.node_type === 'elevator')
-    return { type: 'elevator', label: 'Take the elevator' };
+    return { type: InstructionType.Elevator, label: 'Take the elevator' };
   const prevNode = nodes[index - 1];
   const nextNode = nodes[index + 1];
   const b0 = bearing(
@@ -23,7 +23,7 @@ export const getInstruction = (
     [nextNode.properties.longitude, nextNode.properties.latitude],
   );
   const delta = ((b1 - b0 + 540) % 360) - 180;
-  if (Math.abs(delta) < 20) return { type: 'forward', label: 'Head straight' };
-  const turn = delta > 0 ? 'right' : 'left';
-  return { type: turn, label: `Take a ${turn}` };
+  if (Math.abs(delta) < 20) return { type: InstructionType.Forward, label: 'Head straight' };
+  const turn = delta > 0 ? InstructionType.Right : InstructionType.Left;
+  return { type: turn, label: `Take a ${delta > 0 ? 'right' : 'left'}` };
 };

@@ -1,19 +1,16 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { Coordinates, BuildingNode } from '../types/nodes';
-import { getAllNodes, getNode, findRoute, getGraphInfo } from '../services/multiLayerGraph';
-import { type RoutingPreference } from '../config/routing';
+import { Coordinates, BuildingNode, NodeType } from '../types/nodes';
+import { InstructionType, SegmentType } from '../types/route';
+import { getAllNodes, getNode, findRoute, getGraphInfo, GraphLayerType } from '../services/multiLayerGraph';
+import { RoutingPreference } from '../config/routing';
 import { haversineDistance } from '../utils/math';
-import {
-  aggregateRoute,
-  buildMapboxSegment,
-  handleDirectWalk,
-  findUserInsideBuilding,
-  type ExecutedSegment,
-} from '../services/routeBuilder';
+import type { ExecutedSegment } from '../types/route';
+import { aggregateRoute, buildMapboxSegment, handleDirectWalk, findUserInsideBuilding } from '../services/routeBuilder';
 import { incrementBuildingVisit } from '../services/visits';
 import { ROUTING_CONFIG } from '../config/routing';
+import { isRoutingAvailable, isWriteAvailable, getConnectionState } from '../services/connectionState';
 
 function mapboxCoords(node: BuildingNode, reference: Coordinates): Coordinates {
   if (!node.entranceNodes?.length) return node;
@@ -38,12 +35,20 @@ export async function getRoute(
   res: Response,
   next: NextFunction,
 ) {
+  // Check if routing is available (graph loaded)
+  if (!isRoutingAvailable()) {
+    res.status(503).json({
+      error: 'Routing service unavailable',
+      message: 'Graph not loaded. Check server startup logs.',
+    });
+    return;
+  }
+
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
-  const validPreferences: RoutingPreference[] = ['indoor', 'balanced', 'fastest'];
   const rawPreference = req.query.preference as string;
-  const preference: RoutingPreference = validPreferences.includes(rawPreference as RoutingPreference)
+  const preference: RoutingPreference = Object.values(RoutingPreference).includes(rawPreference as RoutingPreference)
     ? (rawPreference as RoutingPreference)
     : ROUTING_CONFIG.DEFAULT_PREFERENCE;
   const userLocation: Coordinates = { latitude, longitude };
@@ -108,30 +113,30 @@ export async function getRoute(
       const seg = await buildMapboxSegment(
         userLocation,
         mapboxCoords(firstNode, userLocation),
-        { type: 'enter', label: 'Enter the GopherWay' },
+        { type: InstructionType.Enter, label: 'Enter the GopherWay' },
       );
-      if (seg) executed.push({ type: 'mapbox', ...seg });
+      if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
     }
 
     for (let i = 0; i < routeSegments.length; i++) {
       const segment = routeSegments[i];
-      if (segment.type === 'tunnel') {
-        const prevWasTunnel = routeSegments[i - 1]?.type === 'tunnel';
-        const nextIsAlsoTunnel = routeSegments[i + 1]?.type === 'tunnel';
+      if (segment.type === GraphLayerType.Tunnel) {
+        const prevWasTunnel = routeSegments[i - 1]?.type === GraphLayerType.Tunnel;
+        const nextIsAlsoTunnel = routeSegments[i + 1]?.type === GraphLayerType.Tunnel;
 
         let steps = segment.steps!;
         if (prevWasTunnel || nextIsAlsoTunnel) {
           steps = steps.map((s, idx) => {
             if (idx === 0 && prevWasTunnel)
-              return { ...s, instruction: { type: 'forward' as const, label: 'Continue through the GopherWay' } };
+              return { ...s, instruction: { type: InstructionType.Forward, label: 'Continue through the GopherWay' } };
             if (idx === steps.length - 1 && nextIsAlsoTunnel)
-              return { ...s, instruction: { type: 'forward' as const, label: 'Continue through the GopherWay' } };
+              return { ...s, instruction: { type: InstructionType.Forward, label: 'Continue through the GopherWay' } };
             return s;
           });
         }
 
         executed.push({
-          type: 'GT',
+          type: SegmentType.GT,
           steps,
           distance: segment.cost,
           duration: Math.round(segment.cost / ROUTING_CONFIG.WALKING_SPEED_MPS),
@@ -140,10 +145,10 @@ export async function getRoute(
         const distMeters = haversineDistance(segment.from, segment.to) * 1000;
         if (distMeters < ROUTING_CONFIG.MIN_MAPBOX_SEGMENT_METERS) {
           executed.push({
-            type: 'mapbox',
+            type: SegmentType.Mapbox,
             steps: [
-              { ...segment.from, buildingName: '', id: `${segment.from.longitude},${segment.from.latitude}`, instruction: { type: 'forward' as const, label: 'Continue walking' }, floor: '0', nodeType: 'sidewalk', type: 'mapbox' },
-              { ...segment.to, buildingName: '', id: `${segment.to.longitude},${segment.to.latitude}`, instruction: { type: 'forward' as const, label: 'Continue walking' }, floor: '0', nodeType: 'sidewalk', type: 'mapbox' },
+              { ...segment.from, buildingName: '', id: `${segment.from.longitude},${segment.from.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
+              { ...segment.to, buildingName: '', id: `${segment.to.longitude},${segment.to.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
             ],
             distance: distMeters,
             duration: Math.round(distMeters / ROUTING_CONFIG.WALKING_SPEED_MPS),
@@ -152,9 +157,9 @@ export async function getRoute(
           const seg = await buildMapboxSegment(
             mapboxCoords(segment.from, segment.to),
             mapboxCoords(segment.to, segment.from),
-            { type: 'forward', label: 'Continue walking' },
+            { type: InstructionType.Forward, label: 'Continue walking' },
           );
-          if (seg) executed.push({ type: 'mapbox', ...seg });
+          if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
         }
       }
     }
@@ -167,16 +172,22 @@ export async function getRoute(
       const seg = await buildMapboxSegment(
         mapboxCoords(lastNode, targetCoords),
         targetCoords,
-        { type: 'final', label: `Walk to ${targetBuilding}` },
+        { type: InstructionType.Final, label: `Walk to ${targetBuilding}` },
       );
-      if (seg) executed.push({ type: 'mapbox', ...seg });
+      if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
     }
 
     const result = aggregateRoute(executed);
-    await incrementBuildingVisit(session, targetBuilding);
+
+    // Only track visits if Neo4j is available (skip in offline mode)
+    if (isWriteAvailable()) {
+      await incrementBuildingVisit(session, targetBuilding);
+    }
+
     res.json(result);
-  } catch (err: any) {
-    console.error(`[ERROR] Route failed: ${err.message}`);
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error(`[ERROR] Route failed: ${error.message}`);
     res.status(500).send('Failed finding Route');
   } finally {
     await session.close();
@@ -218,7 +229,7 @@ export async function getAllBuildings(
       id: record.get('id').toNumber(),
       isDisconnected: record.get('is_disconnected') === true,
     })));
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error fetching buildings from database', err);
     res.status(500).send('Error fetching buildings from database');
   }
@@ -294,15 +305,26 @@ export async function searchBuildings(req: Request, res: Response) {
         };
       }),
     );
-  } catch (err: any) {
-    console.log('Search Error: ', err);
-    res.status(503).json({ error: 'Error while querying the database', details: err.message });
+  } catch (err: unknown) {
+    const error = err as Error;
+    console.error('Search Error:', error);
+    res.status(503).json({ error: 'Error while querying the database', details: error.message });
   }
 }
 
 /**
  * GET /graph
+ * Returns graph statistics and connection state.
  */
 export function getGraphStatus(_req: Request, res: Response) {
-  res.json(getGraphInfo());
+  const graphInfo = getGraphInfo();
+  const connState = getConnectionState();
+
+  res.json({
+    ...graphInfo,
+    neo4jAvailable: connState.neo4jAvailable,
+    graphLoaded: connState.graphLoaded,
+    offlineMode: connState.offlineMode,
+    cacheAge: connState.cacheAge?.toISOString() ?? null,
+  });
 }

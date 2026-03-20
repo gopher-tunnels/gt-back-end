@@ -1,6 +1,7 @@
 import express, { Express, Request } from 'express';
 import { driver, verifyConnection } from './controller/db';
 import { buildGraph, loadFromCacheIfExists } from './services/graphPrecomputer';
+import { setGraphLoaded, getConnectionState } from './services/connectionState';
 
 import dotenv from 'dotenv';
 import routingRoutes from './routes/routing.route';
@@ -34,19 +35,18 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerOutput));
 const requestRateLimiter = buildRateLimiter({
   validateXForwardedFor: trustProxy !== false,
 });
-// app.use('/api/routing', requestRateLimiter, requestSecurityMiddleware, routingRoutes);
 
 app.use(
   '/api/routing',
   requestRateLimiter,
-  (req, res, next) => {
+  (req: Request & { rawBody?: string }, res, next) => {
     // Allow all GET requests without HMAC headers
     if (req.method === 'GET') {
       return next();
     }
 
     // Enforce HMAC security for non-GET methods (POST, PUT, PATCH, DELETE)
-    return requestSecurityMiddleware(req as any, res, next);
+    return requestSecurityMiddleware(req, res, next);
   },
   routingRoutes,
 );
@@ -56,22 +56,56 @@ process.on('SIGINT', async () => {
   process.exit(1);
 });
 
-// for testing
-// starts app regardless of db connection.
-verifyConnection().then(async () => {
+/**
+ * Startup logic with offline mode support.
+ *
+ * Priority:
+ * 1. SKIP_GRAPH_BUILD=true: Load from cache only, don't touch Neo4j for graph
+ * 2. Neo4j available: Build graph normally (or load from cache if valid)
+ * 3. Neo4j unavailable: Fall back to cache if available (offline mode)
+ */
+async function startServer(): Promise<void> {
+  const neo4jConnected = await verifyConnection();
+
   if (process.env.SKIP_GRAPH_BUILD === 'true') {
-    await loadFromCacheIfExists();
-  } else {
+    // Explicit skip - only use cache
+    const cacheAge = await loadFromCacheIfExists();
+    if (!cacheAge) console.warn('[Graph] No valid cache found - routes will fail. Run without SKIP_GRAPH_BUILD to build.');
+    setGraphLoaded(!!cacheAge, cacheAge ?? undefined);
+  } else if (neo4jConnected) {
+    // Normal mode - build or load graph
     const session = driver.session({ database: 'neo4j' });
     try {
-      await buildGraph(session);
+      const cacheAge = await buildGraph(session);
+      setGraphLoaded(true, cacheAge ?? undefined);
     } finally {
       await session.close();
     }
+  } else {
+    // Neo4j unavailable - try cache fallback
+    console.log('[Startup] Neo4j unavailable - attempting cache fallback...');
+    const cacheAge = await loadFromCacheIfExists();
+    if (cacheAge) {
+      setGraphLoaded(true, cacheAge);
+      console.log('[Startup] Running in OFFLINE MODE with cached graph data');
+      console.log('[Startup] Note: Write operations (visit tracking) are disabled');
+    } else {
+      console.error('[Startup] No cache available and Neo4j unreachable');
+      console.error('[Startup] Routing endpoints will return errors');
+      setGraphLoaded(false);
+    }
   }
-}).finally(() => {
+
+  const state = getConnectionState();
+  console.log(`[Startup] State: Neo4j=${state.neo4jAvailable ? 'connected' : 'disconnected'}, Graph=${state.graphLoaded ? 'loaded' : 'NOT loaded'}`);
+
   app.listen(port, () => {
     console.log(`\nServer running on http://localhost:${port}`);
     console.log(`API docs:   http://localhost:${port}/api-docs\n`);
   });
+}
+
+startServer().catch((err) => {
+  console.error('[Startup] Fatal error:', err);
+  process.exit(1);
 });
