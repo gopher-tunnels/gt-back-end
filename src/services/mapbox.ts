@@ -59,6 +59,7 @@ export async function snapToNearestSidewalk(
   coords: Coordinates,
   directionTarget: Coordinates,
   isOrigin: boolean,
+  distanceOnly = false,
 ): Promise<Coordinates> {
   const roads = await queryNearbyRoads(coords, SNAP_CONFIG.SEARCH_RADIUS_METERS);
 
@@ -81,7 +82,10 @@ export async function snapToNearestSidewalk(
   type ScoredFeature = TilequeryFeature & { score: number; bearing: number };
 
   const scoredFeatures: ScoredFeature[] = roads
-    .filter((f) => f.properties.tilequery.distance <= SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS)
+    .filter((f) =>
+      f.properties.tilequery.distance <= SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS &&
+      f.properties.structure !== 'tunnel'
+    )
     .map((feature) => {
       const featureCoords: Coordinates = {
         longitude: feature.geometry.coordinates[0],
@@ -100,8 +104,10 @@ export async function snapToNearestSidewalk(
       const normalizedAngle = angleDiff / 180;
       const normalizedDistance = feature.properties.tilequery.distance / SNAP_CONFIG.MAX_SNAP_DISTANCE_METERS;
 
-      // Lower score is better: 70% direction weight, 30% distance weight
-      const score = normalizedAngle * 0.7 + normalizedDistance * 0.3;
+      // Lower score is better: distance-only for user coords, directional for building entrances
+      const score = distanceOnly
+        ? normalizedDistance
+        : normalizedAngle * 0.7 + normalizedDistance * 0.3;
 
       return { ...feature, score, bearing: featureBearing };
     });
@@ -129,7 +135,8 @@ export async function snapToNearestSidewalk(
 }
 
 export interface MapboxDirectionsOptions {
-  snapToSidewalk?: boolean;
+  snapOrigin?: boolean;
+  snapDestination?: boolean;
   radiusMeters?: number; // Search radius for matching coords to road network (default: 50)
 }
 
@@ -144,16 +151,16 @@ export async function getMapboxWalkingDirections(
     throw new Error('Missing MAPBOX_API_KEY environment variable');
   }
 
-  // Snap coordinates to nearest sidewalk if requested
-  // This prevents Mapbox from using its indoor routing when coords are inside the GopherWay
   let snappedOrigin = origin;
   let snappedDestination = destination;
 
-  if (options.snapToSidewalk) {
-    [snappedOrigin, snappedDestination] = await Promise.all([
-      snapToNearestSidewalk(origin, destination, true),
-      snapToNearestSidewalk(destination, origin, false),
-    ]);
+  if (options.snapOrigin) {
+    snappedOrigin = await snapToNearestSidewalk(origin, destination, true, true);
+    console.log(`[Route]     post-snap from  ${snappedOrigin.longitude}, ${snappedOrigin.latitude}`);
+  }
+  if (options.snapDestination) {
+    snappedDestination = await snapToNearestSidewalk(destination, origin, false);
+    console.log(`[Route]     post-snap to    ${snappedDestination.longitude}, ${snappedDestination.latitude}`);
   }
 
   const radius = options.radiusMeters ?? 50;

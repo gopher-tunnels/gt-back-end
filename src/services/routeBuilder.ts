@@ -7,7 +7,7 @@ import { processMapboxInstruction } from '../utils/routing/processMapboxInstruct
 import { getMapboxWalkingDirections, MapboxDirectionsOptions } from './mapbox';
 import { ROUTING_CONFIG } from '../config/routing';
 import { incrementBuildingVisit } from './visits';
-import { isWriteAvailable } from './connectionState';
+import { isWriteAvailable } from '../controller/db';
 
 export interface MapboxSegmentResult {
   steps: RouteStep[];
@@ -30,17 +30,14 @@ export async function buildMapboxSegment(
   origin: Coordinates,
   destination: Coordinates,
   finalInstruction: { type: InstructionType; label: string },
-  options: MapboxDirectionsOptions = { snapToSidewalk: true },
+  options: MapboxDirectionsOptions = {},
 ): Promise<MapboxSegmentResult | null> {
   try {
     let mapboxDirections = await getMapboxWalkingDirections(origin, destination, options);
 
-    if (!mapboxDirections.routes?.length && options.snapToSidewalk) {
-      console.warn('[Mapbox] NoRoute with snapping - retrying without snap (radius: 100m)');
-      mapboxDirections = await getMapboxWalkingDirections(origin, destination, {
-        snapToSidewalk: false,
-        radiusMeters: 100,
-      });
+    if (!mapboxDirections.routes?.length && (options.snapOrigin || options.snapDestination)) {
+      console.warn('[Route]     snap failed — retrying without sidewalk snap');
+      mapboxDirections = await getMapboxWalkingDirections(origin, destination, { radiusMeters: 100 });
     }
 
     if (!mapboxDirections.routes?.length || !mapboxDirections.routes[0]?.legs?.length) {
@@ -54,9 +51,9 @@ export async function buildMapboxSegment(
     const firstCoord = leg.steps[0]?.geometry?.coordinates?.[0];
     if (firstCoord) rawSteps.push({ coords: firstCoord, instruction: undefined });
 
-    leg.steps.slice(0, -1).forEach((step: MapboxStep, stepIndex: number) => {
+    leg.steps.slice(0, -1).forEach((step: MapboxStep) => {
       const coords: [number, number][] = step?.geometry?.coordinates || [];
-      const startIdx = stepIndex === 0 ? 1 : 0;
+      const startIdx = 1;
       coords.slice(startIdx).forEach((coord: [number, number], coordIndex: number) => {
         rawSteps.push({
           coords: coord,
@@ -66,6 +63,9 @@ export async function buildMapboxSegment(
     });
 
     if (rawSteps.length === 0) return null;
+
+    console.log(`[Route]     mapbox returned ${rawSteps.length} coords:`);
+    rawSteps.forEach(({ coords }) => console.log(`[Route]       ${coords[0]}, ${coords[1]}`));
 
     const steps: RouteStep[] = rawSteps.map(({ coords }, index) => ({
       buildingName: '',
@@ -108,6 +108,7 @@ export async function handleDirectWalk(
     userLocation,
     targetCoords,
     { type: InstructionType.Final, label: `Arrive at ${targetBuilding}` },
+    { snapOrigin: false, snapDestination: true },
   );
   if (!segment) return null;
 

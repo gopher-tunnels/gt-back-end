@@ -1,6 +1,5 @@
 import neo4j, { Driver } from "neo4j-driver";
 import dotenv from 'dotenv';
-import { setNeo4jAvailable } from '../services/connectionState';
 
 dotenv.config();
 
@@ -12,8 +11,6 @@ if (!URI || !USER || !PASSWORD) {
     throw new Error(".env missing fields");
 }
 
-// ASSUMING DRIVER ALWAYS EXISTS, FOR DEVELOPMENT
-// In production, if driver fails frontend should go to backup data or not start at all.
 export const driver: Driver = neo4j.driver(
     URI,
     neo4j.auth.basic(USER, PASSWORD),
@@ -25,20 +22,22 @@ export const driver: Driver = neo4j.driver(
     }
 );
 
-/**
- * Verifies the Neo4j connection and updates the connection state.
- * @returns true if connection succeeded, false otherwise
- */
+let neo4jAvailable = false;
+
+export function isWriteAvailable(): boolean {
+    return neo4jAvailable;
+}
+
 export async function verifyConnection(): Promise<boolean> {
     try {
         const serverInfo = await driver.getServerInfo();
         console.log('Connected to Neo4j:', serverInfo);
-        setNeo4jAvailable(true);
+        neo4jAvailable = true;
         return true;
     } catch (err: unknown) {
         const error = err as Error;
         console.error(`\nCould not connect to Neo4j: ${error.message}`);
-        setNeo4jAvailable(false);
+        neo4jAvailable = false;
         return false;
     }
 }

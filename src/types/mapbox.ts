@@ -64,6 +64,7 @@ export interface TilequeryFeature {
   properties: {
     class?: string;
     type?: string;
+    structure?: 'none' | 'tunnel' | 'bridge';
     tilequery: {
       distance: number;
       geometry: string;
