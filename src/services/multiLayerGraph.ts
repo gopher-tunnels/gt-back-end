@@ -51,13 +51,6 @@ export function loadGraph(cache: GraphCache): void {
   for (const node of cache.disconnectedBuildings ?? []) registerDisconnectedBuilding(node);
 }
 
-// Clears IN-MEMORY graph
-export function clearGraph(): void {
-  nodes.clear();
-  tunnelEdges.clear();
-  disconnectedBuildings.clear();
-}
-
 export function getGraphInfo(): { nodeCount: number; tunnelEdgeCount: number; disconnectedBuildingCount: number } {
   let edgeCount = 0;
   for (const toMap of tunnelEdges.values()) edgeCount += toMap.size;

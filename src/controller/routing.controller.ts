@@ -1,16 +1,17 @@
 import { Request, Response, NextFunction } from 'express';
 import { driver } from './db';
 import { Node } from 'neo4j-driver';
-import { Coordinates, BuildingNode, NodeType } from '../types/nodes';
+import { Coordinates, BuildingNode } from '../types/nodes';
 import { InstructionType, SegmentType } from '../types/route';
 import { getAllNodes, getNode, getDisconnectedBuilding, findRoute, getGraphInfo, GraphLayerType } from '../services/multiLayerGraph';
-import { RoutingPreference } from '../config/routing';
+import { RoutingPreference, OUTDOOR_PENALTY_BY_PREFERENCE, ROUTING_CONFIG } from '../config/routing';
 import { haversineDistance } from '../utils/math';
-import type { ExecutedSegment } from '../types/route';
+import type { ExecutedSegment, RouteSegment } from '../types/route';
 import { aggregateRoute, buildMapboxSegment, handleDirectWalk, findUserInsideBuilding } from '../services/routeBuilder';
 import { incrementBuildingVisit } from '../services/visits';
-import { ROUTING_CONFIG } from '../config/routing';
-import { isRoutingAvailable, isWriteAvailable, getConnectionState } from '../services/connectionState';
+import { isWriteAvailable } from './db';
+
+const fmt = (c: Coordinates) => `${c.longitude}, ${c.latitude}`;
 
 function mapboxCoords(node: BuildingNode, reference: Coordinates): Coordinates {
   if (!node.entranceNodes?.length) return node;
@@ -35,15 +36,6 @@ export async function getRoute(
   res: Response,
   next: NextFunction,
 ) {
-  // Check if routing is available (graph loaded)
-  if (!isRoutingAvailable()) {
-    res.status(503).json({
-      error: 'Routing service unavailable',
-      message: 'Graph not loaded. Check server startup logs.',
-    });
-    return;
-  }
-
   const targetBuilding = String(req.query.targetBuilding);
   const longitude = parseFloat(req.query.longitude as string);
   const latitude = parseFloat(req.query.latitude as string);
@@ -70,22 +62,19 @@ export async function getRoute(
 
     // 1. Direct walk
     const directWalk = await handleDirectWalk(session, userLocation, targetCoords, targetBuilding);
-    if (directWalk) { res.json(directWalk); return; }
+    if (directWalk) {
+      console.log(`[Route] ═══ ${targetBuilding} | direct walk ═══`);
+      console.log(`[Route]   from  ${fmt(userLocation)}`);
+      console.log(`[Route]   to    ${fmt(targetCoords)}`);
+      res.json(directWalk);
+      return;
+    }
 
     const allNodes = getAllNodes();
 
-    // 2. Determine start node — inside building check, else nearest building_node
+    // 2. Check if user is inside a building
     const insideBuilding = findUserInsideBuilding(allNodes, userLocation);
     const skipInitialMapbox = !!insideBuilding;
-    const startNodeName = insideBuilding?.buildingName
-      ?? allNodes.reduce((best, n) =>
-          haversineDistance(n, userLocation) < haversineDistance(best, userLocation) ? n : best,
-        ).buildingName;
-
-    if (!startNodeName) {
-      res.status(404).send('No path found');
-      return;
-    }
 
     // 3. Route target — if building has no building_node, route to nearest node then Mapbox to target
     const targetInGraph = !!getNode(targetBuilding);
@@ -95,12 +84,45 @@ export async function getRoute(
           haversineDistance(n, targetCoords) < haversineDistance(best, targetCoords) ? n : best,
         ).buildingName;
 
-    // 4. Dijkstra on multilayer graph
-    const routeSegments = findRoute(startNodeName, routeTarget, preference);
-    if (!routeSegments) {
+    // 4. Find best start node + route: minimize haversine(user→node)*penalty + routeCost(node→target)
+    // This prevents picking a close-but-wrong-direction node that leads to a much longer tunnel path.
+    const outdoorPenalty = OUTDOOR_PENALTY_BY_PREFERENCE[preference];
+    let startNodeName = insideBuilding?.buildingName ?? '';
+    let routeSegments: RouteSegment[] | null = insideBuilding
+      ? findRoute(insideBuilding.buildingName, routeTarget, preference)
+      : null;
+
+    if (!insideBuilding) {
+      let bestCost = Infinity;
+      for (const node of allNodes) {
+        const segments = findRoute(node.buildingName, routeTarget, preference);
+        if (!segments) continue;
+        const walkCost = haversineDistance(node, userLocation) * 1000 * outdoorPenalty;
+        const routeCost = segments.reduce((sum, s) => sum + s.cost, 0);
+        const total = walkCost + routeCost;
+        if (total < bestCost) {
+          bestCost = total;
+          startNodeName = node.buildingName;
+          routeSegments = segments;
+        }
+      }
+    }
+
+    if (!startNodeName || !routeSegments) {
       res.status(404).send('No path found');
       return;
     }
+
+    const pathStr = routeSegments.length === 0
+      ? `${startNodeName} → ${routeTarget}`
+      : routeSegments.map((s, i) =>
+          `${i === 0 ? s.from.buildingName : ''} [${s.type} ${Math.round(s.cost)}m] → ${s.to.buildingName}`
+        ).join(' ');
+
+    console.log(`[Route] ═══ ${targetBuilding} | ${preference} ═══`);
+    console.log(`[Route]   user:   ${fmt(userLocation)}`);
+    console.log(`[Route]   start:  ${startNodeName}  (${insideBuilding ? 'inside building' : 'nearest node'})`);
+    console.log(`[Route]   path:   ${pathStr}${!targetInGraph ? `  →  mapbox final → ${targetBuilding}` : ''}`);
 
     // 5. Execute segments
     const executed: ExecutedSegment[] = [];
@@ -108,10 +130,16 @@ export async function getRoute(
     // Initial Mapbox: user -> first building_node (skip if user is inside)
     if (!skipInitialMapbox) {
       const firstNode = routeSegments.length > 0 ? routeSegments[0].from : getNode(routeTarget)!;
+      const dest = mapboxCoords(firstNode, userLocation);
+      const snapDest = !firstNode.entranceNodes?.length;
+      console.log(`[Route]   mapbox  user → entrance`);
+      console.log(`[Route]     from  ${fmt(userLocation)}`);
+      console.log(`[Route]     to    ${fmt(dest)}  ${snapDest ? '[snap]' : '[entrance - no snap]'}`);
       const seg = await buildMapboxSegment(
         userLocation,
-        mapboxCoords(firstNode, userLocation),
+        dest,
         { type: InstructionType.Enter, label: 'Enter the GopherWay' },
+        { snapOrigin: false, snapDestination: snapDest },
       );
       if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
     }
@@ -140,25 +168,20 @@ export async function getRoute(
           duration: Math.round(segment.cost / ROUTING_CONFIG.WALKING_SPEED_MPS),
         });
       } else {
-        const distMeters = haversineDistance(segment.from, segment.to) * 1000;
-        if (distMeters < ROUTING_CONFIG.MIN_MAPBOX_SEGMENT_METERS) {
-          executed.push({
-            type: SegmentType.Mapbox,
-            steps: [
-              { ...segment.from, buildingName: '', id: `${segment.from.longitude},${segment.from.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
-              { ...segment.to, buildingName: '', id: `${segment.to.longitude},${segment.to.latitude}`, instruction: { type: InstructionType.Forward, label: 'Continue walking' }, floor: '0', nodeType: NodeType.Sidewalk, type: SegmentType.Mapbox },
-            ],
-            distance: distMeters,
-            duration: Math.round(distMeters / ROUTING_CONFIG.WALKING_SPEED_MPS),
-          });
-        } else {
-          const seg = await buildMapboxSegment(
-            mapboxCoords(segment.from, segment.to),
-            mapboxCoords(segment.to, segment.from),
-            { type: InstructionType.Forward, label: 'Continue walking' },
-          );
-          if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
-        }
+        const origin = mapboxCoords(segment.from, segment.to);
+        const dest = mapboxCoords(segment.to, segment.from);
+        const snapFrom = !segment.from.entranceNodes?.length;
+        const snapTo = !segment.to.entranceNodes?.length;
+        console.log(`[Route]   mapbox  outdoor  (${segment.from.buildingName} → ${segment.to.buildingName})`);
+        console.log(`[Route]     from  ${fmt(origin)}  ${snapFrom ? '[snap]' : '[entrance - no snap]'}`);
+        console.log(`[Route]     to    ${fmt(dest)}  ${snapTo ? '[snap]' : '[entrance - no snap]'}`);
+        const seg = await buildMapboxSegment(
+          origin,
+          dest,
+          { type: InstructionType.Forward, label: 'Continue walking' },
+          { snapOrigin: snapFrom, snapDestination: snapTo },
+        );
+        if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
       }
     }
 
@@ -167,10 +190,16 @@ export async function getRoute(
       const lastNode = routeSegments.length > 0
         ? routeSegments[routeSegments.length - 1].to
         : getNode(routeTarget)!;
+      const origin = mapboxCoords(lastNode, targetCoords);
+      const snapFrom = !lastNode.entranceNodes?.length;
+      console.log(`[Route]   mapbox  final → ${targetBuilding}`);
+      console.log(`[Route]     from  ${fmt(origin)}  ${snapFrom ? '[snap]' : '[entrance - no snap]'}`);
+      console.log(`[Route]     to    ${fmt(targetCoords)}  [snap]`);
       const seg = await buildMapboxSegment(
-        mapboxCoords(lastNode, targetCoords),
+        origin,
         targetCoords,
         { type: InstructionType.Final, label: `Walk to ${targetBuilding}` },
+        { snapOrigin: snapFrom, snapDestination: true },
       );
       if (seg) executed.push({ type: SegmentType.Mapbox, ...seg });
     }
@@ -316,13 +345,8 @@ export async function searchBuildings(req: Request, res: Response) {
  */
 export function getGraphStatus(_req: Request, res: Response) {
   const graphInfo = getGraphInfo();
-  const connState = getConnectionState();
-
   res.json({
     ...graphInfo,
-    neo4jAvailable: connState.neo4jAvailable,
-    graphLoaded: connState.graphLoaded,
-    offlineMode: connState.offlineMode,
-    cacheAge: connState.cacheAge?.toISOString() ?? null,
+    neo4jAvailable: isWriteAvailable(),
   });
 }
